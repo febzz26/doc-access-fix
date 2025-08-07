@@ -6,7 +6,7 @@ export const Footer: React.FC = () => {
   return (
     <footer className="bg-card border-t">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid md:grid-cols-4 gap-8">
+        <div className="grid md:grid-cols-3 gap-8">
           {/* Brand */}
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
@@ -19,16 +19,6 @@ export const Footer: React.FC = () => {
             </p>
           </div>
 
-          {/* Product */}
-          <div>
-            <h3 className="font-semibold mb-4">Product</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#features" className="hover:text-foreground transition-colors">Features</a></li>
-              <li><a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a></li>
-              <li><a href="#api" className="hover:text-foreground transition-colors">API</a></li>
-              <li><a href="#integrations" className="hover:text-foreground transition-colors">Integrations</a></li>
-            </ul>
-          </div>
 
           {/* Resources */}
           <div>
