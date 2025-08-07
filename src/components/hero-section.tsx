@@ -52,16 +52,6 @@ export const HeroSection: React.FC = () => {
               </div>
             </div>
 
-            {/* CTA Buttons */}
-            <div className="flex flex-col sm:flex-row gap-4">
-              <Button size="lg" className="bg-gradient-primary hover:opacity-90 transition-opacity">
-                Try Free Analysis
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-              <Button variant="outline" size="lg">
-                View Demo
-              </Button>
-            </div>
           </div>
 
           {/* Upload Column */}

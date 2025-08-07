@@ -35,28 +35,6 @@ export const ProblemSolutionSection: React.FC = () => {
   return (
     <section className="py-20 bg-muted/30">
       <div className="container mx-auto px-4">
-        {/* Problem Section */}
-        <div className="mb-16 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-6">
-            The <span className="text-destructive">Accessibility Crisis</span>
-          </h2>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto mb-12">
-            Essential documents like bank statements, medical bills, and legal paperwork 
-            arrive as inaccessible PDFs, blocking millions from crucial life transactions.
-          </p>
-          
-          <div className="grid md:grid-cols-3 gap-8">
-            {problemStats.map((item, index) => (
-              <Card key={index} className="border-destructive/20 bg-destructive/5">
-                <CardContent className="p-6 text-center">
-                  <item.icon className="w-8 h-8 text-destructive mx-auto mb-4" />
-                  <div className="text-3xl font-bold text-destructive mb-2">{item.stat}</div>
-                  <div className="text-sm text-muted-foreground">{item.label}</div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
 
         {/* Solution Section */}
         <div className="text-center">
