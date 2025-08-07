@@ -17,26 +17,45 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Accessibility-focused primary colors */
+    --primary: 234 89% 25%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 234 89% 35%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 234 15% 95%;
+    --secondary-foreground: 234 89% 25%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 234 15% 97%;
+    --muted-foreground: 234 15% 45%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Warm accent for accessibility focus */
+    --accent: 32 95% 44%;
+    --accent-foreground: 0 0% 100%;
+    --accent-light: 32 95% 85%;
+
+    /* Success color for accessibility improvements */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --success-light: 142 76% 90%;
 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 234 15% 90%;
+    --input: 234 15% 95%;
+    --ring: 234 89% 25%;
 
-    --radius: 0.5rem;
+    /* Custom gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-accent: linear-gradient(135deg, hsl(var(--accent)), hsl(32 95% 55%));
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 50%, hsl(var(--accent)) 100%);
+
+    /* Shadows */
+    --shadow-soft: 0 4px 6px -1px hsl(234 89% 25% / 0.1), 0 2px 4px -1px hsl(234 89% 25% / 0.06);
+    --shadow-medium: 0 10px 15px -3px hsl(234 89% 25% / 0.1), 0 4px 6px -2px hsl(234 89% 25% / 0.05);
+    --shadow-large: 0 25px 50px -12px hsl(234 89% 25% / 0.25);
+
+    --radius: 0.75rem;
 
     --sidebar-background: 0 0% 98%;
 
