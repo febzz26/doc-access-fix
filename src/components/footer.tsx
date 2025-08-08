@@ -1,10 +1,12 @@
 import React from 'react';
 import { Separator } from '@/components/ui/separator';
 import { Shield, Mail, MapPin } from 'lucide-react';
+
 export const Footer: React.FC = () => {
-  return <footer className="bg-card border-t">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
+  return (
+    <footer className="bg-card border-t">
+      <div className="container mx-auto px-4 py-12">
+        <div className="grid md:grid-cols-3 gap-8">
           {/* Brand */}
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
@@ -17,8 +19,6 @@ export const Footer: React.FC = () => {
             </p>
           </div>
 
-          {/* Product */}
-          
 
           {/* Resources */}
           <div>
@@ -49,7 +49,17 @@ export const Footer: React.FC = () => {
 
         <Separator className="my-8" />
 
-        
+        <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+          <p className="text-sm text-muted-foreground">
+            © 2024 AccessFix. All rights reserved.
+          </p>
+          <div className="flex space-x-6 text-sm text-muted-foreground">
+            <a href="#privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
+            <a href="#terms" className="hover:text-foreground transition-colors">Terms of Service</a>
+            <a href="#accessibility" className="hover:text-foreground transition-colors">Accessibility Statement</a>
+          </div>
+        </div>
       </div>
-    </footer>;
+    </footer>
+  );
 };
