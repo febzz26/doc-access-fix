@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, FileText, Loader2, Settings } from 'lucide-react';
+import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square } from 'lucide-react';
 
 interface LocationState {
   files?: File[];
@@ -25,7 +25,35 @@ const Analyze: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [done, setDone] = useState(false);
 
+  const [originalPreview, setOriginalPreview] = useState('');
+  const [accessiblePreview, setAccessiblePreview] = useState('');
+  const [summary, setSummary] = useState('');
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
   const fileNames = useMemo(() => files.map((f) => f.name), [files]);
+
+  const handleNarrate = () => {
+    const text = accessiblePreview || summary;
+    if (!text) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utteranceRef.current = utterance;
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      setIsSpeaking(true);
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      setIsSpeaking(false);
+    }
+  };
+
+  const handleStopNarration = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  };
 
   useEffect(() => {
     if (!files.length) return;
@@ -47,6 +75,25 @@ const Analyze: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [files.length]);
+
+  useEffect(() => {
+    if (!done) return;
+    // Placeholder previews – replace with Edge Function response
+    const names = fileNames.join(', ');
+    setOriginalPreview(`Original document preview for: ${names}\n\n(This demo preview is limited. Connect Supabase + Gemini to enable real extraction.)`);
+    setAccessiblePreview(
+      "Accessible version:\n\n" +
+      "- Proper heading levels (H1-H3) applied\n" +
+      "- Reading order corrected\n" +
+      "- Form fields labeled\n" +
+      "- Alt text suggestions added\n\n" +
+      "Body:\n" +
+      "This document has been cleaned for clarity and optimized for screen readers."
+    );
+    setSummary(
+      "Summary: The document structure was normalized, interactive elements labeled, and contrast/reading order validated. It’s now easier to navigate and understand."
+    );
+  }, [done, fileNames]);
 
   // If user navigates here directly
   if (!files.length) {
@@ -107,25 +154,67 @@ const Analyze: React.FC = () => {
               Working… This usually takes under a minute.
             </div>
           ) : (
-            <div className="mt-8">
+            <div className="mt-8 space-y-6">
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="w-6 h-6 text-success" />
                 <div>
                   <h2 className="text-xl font-semibold text-foreground">Accessibility fixes applied</h2>
-                  <p className="text-muted-foreground mt-1">Headings structured, alt text suggestions generated, color contrast validated, and tags added for screen readers.</p>
+                  <p className="text-muted-foreground mt-1">
+                    Fantastic work—your content is now more inclusive. Headings normalized, reading order corrected,
+                    forms labeled, and alt text suggestions generated.
+                  </p>
                 </div>
               </div>
 
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button>Download accessible version</Button>
-                <Button variant="secondary" onClick={() => navigate('/')}>Process another document</Button>
+              {summary && (
+                <article className="bg-accent-light/40 border rounded-md p-4">
+                  <h3 className="text-base font-medium text-foreground">Concise summary</h3>
+                  <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">{summary}</p>
+                </article>
+              )}
+
+              <section className="grid md:grid-cols-2 gap-4">
+                <article className="bg-muted/30 border rounded-md p-4">
+                  <h3 className="text-sm font-semibold text-foreground">Original</h3>
+                  <div className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">
+                    {originalPreview || "Original preview will appear here once processing is enabled."}
+                  </div>
+                </article>
+                <article className="bg-card border rounded-md p-4 shadow-sm">
+                  <h3 className="text-sm font-semibold text-foreground">Accessible version</h3>
+                  <div className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">
+                    {accessiblePreview || "Accessible output will appear here after AI processing."}
+                  </div>
+                </article>
+              </section>
+
+              <div className="flex flex-wrap gap-3">
+                <Button>
+                  Download accessible version
+                </Button>
+                <Button variant="secondary" onClick={() => navigate('/')}>
+                  Process another document
+                </Button>
+                <Button variant="outline" onClick={() => (isSpeaking ? handleStopNarration() : handleNarrate())}>
+                  {isSpeaking ? (
+                    <>
+                      <Square className="w-4 h-4 mr-2" />
+                      Stop narration
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="w-4 h-4 mr-2" />
+                      Narrate document
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           )}
         </article>
 
         <aside className="mt-8 text-sm text-muted-foreground">
-          Note: To enable real AI processing, connect Supabase and add your Perplexity API key to Edge Function Secrets. Then replace the simulated stepper with a call to your Edge Function.
+          Note: For real AI processing, connect Supabase and add your GEMINI_API_KEY to Edge Function Secrets. Upload files to Supabase Storage, then call an Edge Function (Gemini) to extract, fix, summarize, and return accessible output and preview HTML. This screen will display those results.
         </aside>
       </section>
     </main>
