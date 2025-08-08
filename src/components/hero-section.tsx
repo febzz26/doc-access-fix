@@ -8,7 +8,7 @@ export const HeroSection: React.FC = () => {
     console.log('Files uploaded:', files);
     // Here you would typically send files to your analysis service
   };
-  return <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
+  return <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Background gradient */}
       <div className="absolute inset-0 bg-gradient-hero opacity-10" />
       
