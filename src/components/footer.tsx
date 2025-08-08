@@ -21,15 +21,7 @@ export const Footer: React.FC = () => {
           
 
           {/* Resources */}
-          <div>
-            <h3 className="font-semibold mb-4">Resources</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="#docs" className="hover:text-foreground transition-colors">Documentation</a></li>
-              <li><a href="#guides" className="hover:text-foreground transition-colors">Accessibility Guides</a></li>
-              <li><a href="#support" className="hover:text-foreground transition-colors">Support</a></li>
-              <li><a href="#status" className="hover:text-foreground transition-colors">Status</a></li>
-            </ul>
-          </div>
+          
 
           {/* Contact */}
           <div>
