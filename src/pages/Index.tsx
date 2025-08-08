@@ -7,12 +7,14 @@ import { Footer } from '@/components/footer';
 
 const Index = () => {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen animated-gradient">
       <Navigation />
-      <HeroSection />
-      <ProblemSolutionSection />
-      <FeaturesSection />
-      <Footer />
+      <main className="pt-16 space-y-16 sm:space-y-24">
+        <HeroSection />
+        <ProblemSolutionSection />
+        <FeaturesSection />
+        <Footer />
+      </main>
     </div>
   );
 };
