@@ -3,11 +3,17 @@ import { Button } from '@/components/ui/button';
 import { FileUpload } from '@/components/ui/file-upload';
 import { ArrowRight, Shield, Zap, Users } from 'lucide-react';
 import heroImage from '@/assets/hero-accessibility.jpg';
+import { useNavigate } from 'react-router-dom';
+import { toast } from '@/components/ui/use-toast';
 
 export const HeroSection: React.FC = () => {
+  const navigate = useNavigate();
   const handleFileUpload = (files: File[]) => {
-    console.log('Files uploaded:', files);
-    // Here you would typically send files to your analysis service
+    toast({
+      title: "Upload received",
+      description: `${files.length} document${files.length > 1 ? 's' : ''} queued for processing.`,
+    });
+    navigate('/analyze', { state: { files } });
   };
 
   return (
