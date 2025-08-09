@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square, Download, Eye } from 'lucide-react';
 import { AccessibilityToolbar } from '@/components/accessibility-toolbar';
+import { HeaderBar } from '@/components/header-bar';
 import { supabase } from '@/integrations/supabase/client';
 
 interface LocationState {
@@ -179,6 +180,8 @@ Accessibility improvements: Complete`;
         <meta name="description" content="Processing and fixing document accessibility using AI. Live progress and final results." />
         <link rel="canonical" href="/analyze" />
       </Helmet>
+
+      <HeaderBar />
 
       <section className="container mx-auto px-4 py-16">
         <header className="mb-8">

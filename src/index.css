@@ -134,24 +134,30 @@ All colors MUST be HSL.
   }
 
   /* Accessibility utility classes */
-  .high-contrast {
+  .high-contrast,
+  .high-contrast * {
     background-color: hsl(var(--high-contrast-bg)) !important;
     color: hsl(var(--high-contrast-fg)) !important;
+    border-color: hsl(var(--high-contrast-fg)) !important;
   }
 
-  .large-text {
+  .large-text,
+  .large-text * {
     font-size: var(--large-text-size) !important;
     line-height: 1.6 !important;
   }
 
-  .xl-text {
+  .xl-text,
+  .xl-text * {
     font-size: var(--xl-text-size) !important;
     line-height: 1.6 !important;
   }
 
+  .focus-enhanced *:focus,
   .focus-enhanced *:focus-visible {
     outline: 3px solid hsl(var(--focus-visible)) !important;
     outline-offset: 2px !important;
+    box-shadow: 0 0 0 2px hsl(var(--focus-visible)) !important;
   }
 
   /* Reduce motion for users who prefer it */
