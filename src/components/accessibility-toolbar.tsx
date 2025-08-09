@@ -19,6 +19,18 @@ export const AccessibilityToolbar: React.FC<AccessibilityToolbarProps> = ({ clas
   const [extraLargeText, setExtraLargeText] = useState(false);
   const [enhancedFocus, setEnhancedFocus] = useState(false);
 
+  // Callback to parent when enhanced focus changes
+  React.useEffect(() => {
+    if (enhancedFocus) {
+      document.body.classList.add('focus-enhanced');
+      // Dispatch custom event for focus mode
+      window.dispatchEvent(new CustomEvent('focusModeChange', { detail: { enabled: true } }));
+    } else {
+      document.body.classList.remove('focus-enhanced');
+      window.dispatchEvent(new CustomEvent('focusModeChange', { detail: { enabled: false } }));
+    }
+  }, [enhancedFocus]);
+
   const toggleHighContrast = () => {
     setHighContrast(!highContrast);
     document.body.classList.toggle('high-contrast', !highContrast);

@@ -27,6 +27,7 @@ const Analyze: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState(0);
   const [done, setDone] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
 
   const [accessibleContent, setAccessibleContent] = useState('');
   const [summary, setSummary] = useState('');
@@ -34,6 +35,18 @@ const Analyze: React.FC = () => {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  // Listen for focus mode changes
+  useEffect(() => {
+    const handleFocusModeChange = (event: CustomEvent) => {
+      setFocusMode(event.detail.enabled);
+    };
+    
+    window.addEventListener('focusModeChange', handleFocusModeChange as EventListener);
+    return () => {
+      window.removeEventListener('focusModeChange', handleFocusModeChange as EventListener);
+    };
+  }, []);
 
   const fileNames = useMemo(() => files.map((f) => f.name), [files]);
 
@@ -217,30 +230,35 @@ Accessibility improvements: Complete`;
             </div>
           ) : (
             <div className="mt-8 space-y-6">
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="w-6 h-6 text-success" />
-                <div>
-                  <h2 className="text-xl font-semibold text-foreground">Accessibility fixes applied</h2>
-                  <p className="text-muted-foreground mt-1">
-                    Fantastic work—your content is now more inclusive. Headings normalized, reading order corrected,
-                    forms labeled, and WCAG AA compliance achieved.
-                  </p>
-                </div>
-              </div>
-
-              <AccessibilityToolbar className="mb-6" />
-
-              {summary && (
-                <article className="bg-success-light/40 border border-success/20 rounded-lg p-4">
-                  <div className="flex items-start gap-2">
-                    <Eye className="w-5 h-5 text-success mt-0.5" />
+              {/* Show everything when not in focus mode */}
+              {!focusMode && (
+                <>
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-6 h-6 text-success" />
                     <div>
-                      <h3 className="text-base font-medium text-foreground">Processing Summary</h3>
-                      <p className="text-sm text-muted-foreground mt-2">{summary}</p>
+                      <h2 className="text-xl font-semibold text-foreground">Accessibility fixes applied</h2>
+                      <p className="text-muted-foreground mt-1">
+                        Fantastic work—your content is now more inclusive. Headings normalized, reading order corrected,
+                        forms labeled, and WCAG AA compliance achieved.
+                      </p>
                     </div>
                   </div>
-                </article>
+
+                  {summary && (
+                    <article className="bg-success-light/40 border border-success/20 rounded-lg p-4">
+                      <div className="flex items-start gap-2">
+                        <Eye className="w-5 h-5 text-success mt-0.5" />
+                        <div>
+                          <h3 className="text-base font-medium text-foreground">Processing Summary</h3>
+                          <p className="text-sm text-muted-foreground mt-2">{summary}</p>
+                        </div>
+                      </div>
+                    </article>
+                  )}
+                </>
               )}
+
+              <AccessibilityToolbar className="mb-6" />
 
               <section className="bg-card border rounded-lg p-6 shadow-medium">
                 <div className="flex items-center gap-2 mb-4">
@@ -281,19 +299,21 @@ Accessibility improvements: Complete`;
                 </div>
               </section>
 
-              <div className="flex flex-wrap gap-3">
-                <Button 
-                  onClick={handleDownload}
-                  disabled={!accessibleContent || isDownloading}
-                  className="bg-gradient-primary hover:opacity-90"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  {isDownloading ? 'Preparing...' : 'Download accessible version'}
-                </Button>
-                <Button variant="secondary" onClick={() => navigate('/')}>
-                  Process another document
-                </Button>
-              </div>
+              {!focusMode && (
+                <div className="flex flex-wrap gap-3">
+                  <Button 
+                    onClick={handleDownload}
+                    disabled={!accessibleContent || isDownloading}
+                    className="bg-gradient-primary hover:opacity-90"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {isDownloading ? 'Preparing...' : 'Download accessible version'}
+                  </Button>
+                  <Button variant="secondary" onClick={() => navigate('/')}>
+                    Process another document
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </article>
