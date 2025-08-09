@@ -7,7 +7,7 @@ export const HeaderBar: React.FC = () => {
             
             <h1 className="text-lg font-semibold text-foreground">DocWise</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Making documents accessible for everyone</p>
+          
         </div>
       </div>
     </header>;

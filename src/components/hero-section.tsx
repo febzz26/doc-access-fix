@@ -27,7 +27,7 @@ export const HeroSection: React.FC = () => {
           {/* Content Column */}
           <div className="space-y-8 animate-fade-in">
             <div className="space-y-4">
-              <div className="inline-flex items-center space-x-2 bg-accent-light rounded-full px-4 py-2">
+              <div className="inline-flex items-center space-x-2 bg-accent-light rounded-full px-4 mx-0 py-[8px] my-[8px]">
                 <Shield className="w-4 h-4 text-accent" />
                 <span className="text-sm font-medium text-accent">Accessibility First</span>
               </div>
