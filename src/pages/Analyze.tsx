@@ -7,7 +7,7 @@ import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square, Download, E
 import { AccessibilityToolbar } from '@/components/accessibility-toolbar';
 import { HeaderBar } from '@/components/header-bar';
 import { supabase } from '@/integrations/supabase/client';
-
+import { toast } from '@/components/ui/use-toast';
 interface LocationState {
   files?: File[];
 }
@@ -73,15 +73,23 @@ const Analyze: React.FC = () => {
   };
 
   const handleDownload = async () => {
-    if (!accessibleContent) return;
-    
+    if (!accessibleContent && !processedDocumentUrl) return;
     setIsDownloading(true);
     try {
-      // Create a downloadable file from the accessible content
+      if (processedDocumentUrl) {
+        const link = document.createElement('a');
+        link.href = processedDocumentUrl;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+
+      // Fallback: download accessible content as text
       const fileName = fileNames.length > 0 ? fileNames[0].replace(/\.[^/.]+$/, '') : 'document';
       const blob = new Blob([accessibleContent], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      
       const link = document.createElement('a');
       link.href = url;
       link.download = `${fileName}_accessible.txt`;
@@ -91,6 +99,7 @@ const Analyze: React.FC = () => {
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Download failed:', error);
+      toast({ title: 'Download failed', description: 'Please try again.', variant: 'destructive' });
     } finally {
       setIsDownloading(false);
     }
@@ -99,74 +108,67 @@ const Analyze: React.FC = () => {
   useEffect(() => {
     if (!files.length) return;
 
-    let p = 0;
-    let s = 0;
-    const interval = setInterval(() => {
-      p = Math.min(100, p + Math.floor(Math.random() * 9) + 4);
-      setProgress(p);
-      if (p > (s + 1) * 25 && s < steps.length - 1) {
-        s += 1;
-        setCurrentStep(s);
-      }
-      if (p >= 100) {
-        clearInterval(interval);
+    const process = async () => {
+      try {
+        // Step 1: Upload to storage
+        setCurrentStep(0);
+        setProgress(10);
+
+        const publicUrls: string[] = [];
+        for (const file of files) {
+          const folder = `incoming/${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const path = `${folder}/${file.name}`;
+          const { data: uploadData, error: uploadError } = await supabase
+            .storage
+            .from('uploads')
+            .upload(path, file, { upsert: true });
+          if (uploadError) throw uploadError;
+
+          const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(uploadData.path);
+          publicUrls.push(urlData.publicUrl);
+        }
+
+        // Step 2: Invoke Edge Function to analyze/process
+        setCurrentStep(1);
+        setProgress(40);
+        const { data, error } = await supabase.functions.invoke('process-document', {
+          body: { file_urls: publicUrls }
+        });
+        if (error) throw error;
+
+        // Step 3: Apply fixes/collect results
+        setCurrentStep(2);
+        setProgress(70);
+
+        const content = data?.accessibleContent || data?.accessible_text || data?.html || '';
+        const sum = data?.summary || '';
+        const processedUrl = data?.downloadUrl || data?.processed_url || data?.processedDocumentUrl || '';
+
+        if (!content && !processedUrl) {
+          throw new Error('Edge Function did not return processed content or URL.');
+        }
+
+        setAccessibleContent(content);
+        setSummary(sum);
+        if (processedUrl) setProcessedDocumentUrl(processedUrl);
+
+        // Step 4: Complete
+        setCurrentStep(3);
+        setProgress(100);
+        setDone(true);
+      } catch (err: any) {
+        console.error('Processing failed:', err);
+        toast({
+          title: 'Processing failed',
+          description: err?.message || 'Please check your Edge Function and its logs.',
+          variant: 'destructive'
+        });
         setDone(true);
       }
-    }, 450);
+    };
 
-    return () => clearInterval(interval);
-  }, [files.length]);
-
-  useEffect(() => {
-    if (!done) return;
-    // Placeholder content – replace with Edge Function response
-    const names = fileNames.join(', ');
-    
-    // Enhanced accessible content with proper structure
-    const accessibleDoc = `# Accessible Document: ${names}
-
-## Table of Contents
-1. Introduction
-2. Main Content
-3. Key Information
-4. Summary
-
-## Introduction
-This document has been optimized for accessibility, ensuring it can be easily read by screen readers and users with various disabilities.
-
-## Main Content
-
-### What We Fixed:
-- **Heading Structure**: Applied proper heading hierarchy (H1-H6) for logical navigation
-- **Reading Order**: Reorganized content to follow a natural, sequential flow
-- **Form Elements**: Added descriptive labels to all interactive elements
-- **Alt Text**: Generated meaningful descriptions for images and graphics
-- **Color Contrast**: Ensured WCAG AA compliance for all text-background combinations
-- **Link Descriptions**: Made link text descriptive and meaningful
-- **Table Structure**: Added proper headers and captions for data tables
-
-### Content Summary:
-This document contains important information that has been restructured for maximum accessibility. The content flows logically from introduction through main topics to conclusion.
-
-### Key Features Added:
-- Screen reader compatibility
-- Keyboard navigation support
-- High contrast mode compatibility
-- Proper semantic markup
-- Descriptive headings and sections
-
-## Summary
-Your document is now compliant with WCAG 2.1 AA accessibility standards. It provides a better experience for all users, particularly those using assistive technologies.
-
----
-Document processed on: ${new Date().toLocaleDateString()}
-Accessibility improvements: Complete`;
-
-    setAccessibleContent(accessibleDoc);
-    setSummary(
-      "Successfully transformed your document into an accessible format! Key improvements include proper heading structure, enhanced reading order, labeled interactive elements, and WCAG AA compliance for better screen reader support."
-    );
-  }, [done, fileNames]);
+    process();
+  }, [files, supabase]);
 
   // If user navigates here directly
   if (!files.length) {
