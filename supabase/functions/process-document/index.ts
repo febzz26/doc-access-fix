@@ -25,21 +25,33 @@ async function generateWithGemini(prompt: string) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set in Supabase secrets");
 
-  // Ask Gemini to return strict JSON for reliable parsing
-  const systemInstructions = `You transform input document text into accessible HTML that follows WCAG.
-Return STRICT JSON with keys: accessible_html (string), summary (string). No extra text.`;
+  // Ask Gemini to return strict, production-ready HTML focused on WCAG compliance
+  const systemInstructions = `You are an accessibility remediation engine.
+Transform the provided document content into a clean, semantically structured, WCAG 2.2 AA compliant HTML fragment suitable for embedding inside a web page.
+
+Output requirements (strict):
+- Return STRICT JSON with keys: accessible_html (string), summary (string). No extra keys, no Markdown, no code fences, no surrounding text.
+- accessible_html MUST be a minimal HTML fragment wrapped in a single <article>.
+- Use semantic elements: <header>, <main>, <section>, <aside>, <footer>, <h1>-<h6>, lists, <figure> with <img alt="..."> and <figcaption>, and <table> with <caption>, <thead>, <tbody>, <th scope>.
+- Prefer native semantics over ARIA; only add ARIA where necessary (e.g., aria-describedby for complex tables or forms).
+- Preserve document structure; ensure there is a single <h1> with logical heading hierarchy.
+- Add descriptive alt text placeholders when the original content is unknown (e.g., "Image: subject unknown").
+- Normalize lists, label form fields, add captions to media and tables, and ensure focus/order is logical.
+- Do NOT hallucinate content; if content is unknown, use short placeholders in square brackets.
+
+Also include a concise summary (1–2 sentences) of the main accessibility fixes in the summary field.`;
 
   const body = {
     contents: [
       {
         role: "user",
         parts: [
-          { text: `${systemInstructions}\n\nDocument text:\n${prompt}` },
+          { text: `${systemInstructions}\n\nDocument content to remediate:\n${prompt}` },
         ],
       },
     ],
     generationConfig: {
-      temperature: 0.3,
+      temperature: 0.2,
       topP: 0.9,
       maxOutputTokens: 2048,
       responseMimeType: "application/json",

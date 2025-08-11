@@ -37,6 +37,7 @@ const Analyze: React.FC = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
+  const [downloadFormat, setDownloadFormat] = useState<'html' | 'markdown' | 'pdf' | 'txt'>('html');
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // Load available voices and listen for focus mode changes
@@ -96,30 +97,73 @@ const Analyze: React.FC = () => {
   };
 
   const handleDownload = async () => {
-    if (!accessibleContent && !processedDocumentUrl) return;
+    if (!accessibleContent && !(downloadFormat === 'html' && processedDocumentUrl)) return;
     setIsDownloading(true);
-    try {
-      if (processedDocumentUrl) {
-        const link = document.createElement('a');
-        link.href = processedDocumentUrl;
-        link.download = '';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
-      }
+    const fileBase = (fileNames[0] ? fileNames[0].replace(/\.[^/.]+$/, '') : 'document') + '_accessible';
 
-      // Fallback: download accessible content as text
-      const fileName = fileNames.length > 0 ? fileNames[0].replace(/\.[^/.]+$/, '') : 'document';
-      const blob = new Blob([accessibleContent], { type: 'text/plain;charset=utf-8' });
+    const downloadBlob = (blob: Blob, filename: string) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${fileName}_accessible.txt`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+    };
+
+    try {
+      switch (downloadFormat) {
+        case 'html': {
+          if (processedDocumentUrl) {
+            const link = document.createElement('a');
+            link.href = processedDocumentUrl;
+            link.download = `${fileBase}.html`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else {
+            const blob = new Blob([accessibleContent], { type: 'text/html;charset=utf-8' });
+            downloadBlob(blob, `${fileBase}.html`);
+          }
+          break;
+        }
+        case 'markdown': {
+          const Turndown = (await import('turndown')).default as any;
+          const td = new Turndown({ headingStyle: 'atx' });
+          const markdown = td.turndown(accessibleContent);
+          const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+          downloadBlob(blob, `${fileBase}.md`);
+          break;
+        }
+        case 'txt': {
+          const el = document.createElement('div');
+          el.innerHTML = accessibleContent;
+          const text = el.textContent || '';
+          const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+          downloadBlob(blob, `${fileBase}.txt`);
+          break;
+        }
+        case 'pdf': {
+          const html2pdf: any = (await import('html2pdf.js')).default;
+          const container = document.createElement('div');
+          container.style.position = 'fixed';
+          container.style.left = '-9999px';
+          container.innerHTML = accessibleContent;
+          document.body.appendChild(container);
+          await html2pdf().from(container).set({
+            filename: `${fileBase}.pdf`,
+            jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'] },
+          }).save();
+          document.body.removeChild(container);
+          break;
+        }
+        default: {
+          const blob = new Blob([accessibleContent], { type: 'text/plain;charset=utf-8' });
+          downloadBlob(blob, `${fileBase}.txt`);
+        }
+      }
     } catch (error) {
       console.error('Download failed:', error);
       toast({ title: 'Download failed', description: 'Please try again.', variant: 'destructive' });
@@ -292,9 +336,10 @@ const Analyze: React.FC = () => {
                 </div>
                 
                 <div className="bg-background border rounded-md p-6 max-h-96 overflow-y-auto">
-                  <div className="prose prose-sm max-w-none text-foreground whitespace-pre-wrap">
-                    {accessibleContent || "Accessible content will appear here after AI processing."}
-                  </div>
+                  <div
+                    className="prose prose-sm max-w-none text-foreground whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{ __html: accessibleContent || '<p>Accessible content will appear here after AI processing.</p>' }}
+                  />
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4 pt-4 border-t">
@@ -360,18 +405,30 @@ const Analyze: React.FC = () => {
               </section>
 
               {!focusMode && (
-                <div className="flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-3 items-center">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">File type</span>
+                    <Select value={downloadFormat} onValueChange={(v) => setDownloadFormat(v as any)}>
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Choose format" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="html">HTML</SelectItem>
+                        <SelectItem value="markdown">Markdown (.md)</SelectItem>
+                        <SelectItem value="pdf">PDF</SelectItem>
+                        <SelectItem value="txt">Plain text (.txt)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button 
                     onClick={handleDownload}
-                    disabled={(!accessibleContent && !processedDocumentUrl) || isDownloading}
+                    disabled={isDownloading || !(accessibleContent || (downloadFormat === 'html' && processedDocumentUrl))}
                     className="bg-gradient-primary hover:opacity-90"
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    {isDownloading ? 'Preparing...' : 'Download accessible version'}
+                    {isDownloading ? 'Preparing...' : `Download ${downloadFormat.toUpperCase()}`}
                   </Button>
-                  <Button variant="secondary" onClick={() => navigate('/')}>
-                    Process another document
-                  </Button>
+                  <Button variant="secondary" onClick={() => navigate('/')}>Process another document</Button>
                 </div>
               )}
             </div>
