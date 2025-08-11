@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square, Download, Eye } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square, Download, Eye, Languages } from 'lucide-react';
 import { AccessibilityToolbar } from '@/components/accessibility-toolbar';
 import { HeaderBar } from '@/components/header-bar';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,15 +36,27 @@ const Analyze: React.FC = () => {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState('en-US');
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
-  // Listen for focus mode changes
+  // Load available voices and listen for focus mode changes
   useEffect(() => {
+    const loadVoices = () => {
+      const voices = speechSynthesis.getVoices();
+      setAvailableVoices(voices);
+    };
+
+    loadVoices();
+    speechSynthesis.addEventListener('voiceschanged', loadVoices);
+
     const handleFocusModeChange = (event: CustomEvent) => {
       setFocusMode(event.detail.enabled);
     };
     
     window.addEventListener('focusModeChange', handleFocusModeChange as EventListener);
+    
     return () => {
+      speechSynthesis.removeEventListener('voiceschanged', loadVoices);
       window.removeEventListener('focusModeChange', handleFocusModeChange as EventListener);
     };
   }, []);
@@ -56,7 +69,17 @@ const Analyze: React.FC = () => {
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
+      
+      // Find and set the selected voice
+      const selectedVoice = availableVoices.find(voice => 
+        voice.lang === selectedLanguage || voice.name.includes(selectedLanguage)
+      );
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+      utterance.lang = selectedLanguage;
       utterance.rate = 1.0;
+      
       utteranceRef.current = utterance;
       utterance.onend = () => setIsSpeaking(false);
       utterance.onerror = () => setIsSpeaking(false);
@@ -274,11 +297,46 @@ const Analyze: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4 pt-4 border-t">
                   <div className="text-xs text-muted-foreground">
                     Document optimized for screen readers and accessibility compliance
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <Languages className="w-4 h-4 text-muted-foreground" />
+                      <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue placeholder="Language" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="en-US">English (US)</SelectItem>
+                          <SelectItem value="en-GB">English (UK)</SelectItem>
+                          <SelectItem value="es-ES">Spanish</SelectItem>
+                          <SelectItem value="fr-FR">French</SelectItem>
+                          <SelectItem value="de-DE">German</SelectItem>
+                          <SelectItem value="it-IT">Italian</SelectItem>
+                          <SelectItem value="pt-BR">Portuguese</SelectItem>
+                          <SelectItem value="ru-RU">Russian</SelectItem>
+                          <SelectItem value="ja-JP">Japanese</SelectItem>
+                          <SelectItem value="ko-KR">Korean</SelectItem>
+                          <SelectItem value="zh-CN">Chinese (Mandarin)</SelectItem>
+                          <SelectItem value="ar-SA">Arabic</SelectItem>
+                          <SelectItem value="hi-IN">Hindi</SelectItem>
+                          <SelectItem value="pl-PL">Polish</SelectItem>
+                          <SelectItem value="nl-NL">Dutch</SelectItem>
+                          <SelectItem value="sv-SE">Swedish</SelectItem>
+                          <SelectItem value="da-DK">Danish</SelectItem>
+                          <SelectItem value="no-NO">Norwegian</SelectItem>
+                          <SelectItem value="fi-FI">Finnish</SelectItem>
+                          <SelectItem value="cs-CZ">Czech</SelectItem>
+                          <SelectItem value="hu-HU">Hungarian</SelectItem>
+                          <SelectItem value="tr-TR">Turkish</SelectItem>
+                          <SelectItem value="th-TH">Thai</SelectItem>
+                          <SelectItem value="vi-VN">Vietnamese</SelectItem>
+                          <SelectItem value="he-IL">Hebrew</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <Button
                       variant="outline"
                       size="sm"
