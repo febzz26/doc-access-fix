@@ -163,9 +163,9 @@ const Analyze: React.FC = () => {
         setCurrentStep(2);
         setProgress(70);
 
-        const content = data?.accessibleContent || data?.accessible_text || data?.html || '';
+        const content = data?.accessible_content || data?.accessibleContent || data?.accessible_text || data?.html || '';
         const sum = data?.summary || '';
-        const processedUrl = data?.downloadUrl || data?.processed_url || data?.processedDocumentUrl || '';
+        const processedUrl = data?.processed_document_url || data?.downloadUrl || data?.processed_url || data?.processedDocumentUrl || '';
 
         if (!content && !processedUrl) {
           throw new Error('Edge Function did not return processed content or URL.');
@@ -363,7 +363,7 @@ const Analyze: React.FC = () => {
                 <div className="flex flex-wrap gap-3">
                   <Button 
                     onClick={handleDownload}
-                    disabled={!accessibleContent || isDownloading}
+                    disabled={(!accessibleContent && !processedDocumentUrl) || isDownloading}
                     className="bg-gradient-primary hover:opacity-90"
                   >
                     <Download className="w-4 h-4 mr-2" />
