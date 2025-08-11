@@ -12,24 +12,29 @@ import { toast } from '@/components/ui/use-toast';
 interface LocationState {
   files?: File[];
 }
-
-const steps = [
-  { key: 'upload', label: 'Uploading to secure storage' },
-  { key: 'analyze', label: 'Running AI accessibility analysis' },
-  { key: 'fix', label: 'Applying fixes and tagging' },
-  { key: 'complete', label: 'Finalizing accessible document' },
-] as const;
-
+const steps = [{
+  key: 'upload',
+  label: 'Uploading to secure storage'
+}, {
+  key: 'analyze',
+  label: 'Running AI accessibility analysis'
+}, {
+  key: 'fix',
+  label: 'Applying fixes and tagging'
+}, {
+  key: 'complete',
+  label: 'Finalizing accessible document'
+}] as const;
 const Analyze: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { files = [] } = (location.state as LocationState) || {};
-
+  const {
+    files = []
+  } = location.state as LocationState || {};
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState(0);
   const [done, setDone] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-
   const [accessibleContent, setAccessibleContent] = useState('');
   const [summary, setSummary] = useState('');
   const [processedDocumentUrl, setProcessedDocumentUrl] = useState('');
@@ -46,41 +51,32 @@ const Analyze: React.FC = () => {
       const voices = speechSynthesis.getVoices();
       setAvailableVoices(voices);
     };
-
     loadVoices();
     speechSynthesis.addEventListener('voiceschanged', loadVoices);
-
     const handleFocusModeChange = (event: CustomEvent) => {
       setFocusMode(event.detail.enabled);
     };
-    
     window.addEventListener('focusModeChange', handleFocusModeChange as EventListener);
-    
     return () => {
       speechSynthesis.removeEventListener('voiceschanged', loadVoices);
       window.removeEventListener('focusModeChange', handleFocusModeChange as EventListener);
     };
   }, []);
-
-  const fileNames = useMemo(() => files.map((f) => f.name), [files]);
-
+  const fileNames = useMemo(() => files.map(f => f.name), [files]);
   const handleNarrate = () => {
     const text = accessibleContent || summary;
     if (!text) return;
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      
+
       // Find and set the selected voice
-      const selectedVoice = availableVoices.find(voice => 
-        voice.lang === selectedLanguage || voice.name.includes(selectedLanguage)
-      );
+      const selectedVoice = availableVoices.find(voice => voice.lang === selectedLanguage || voice.name.includes(selectedLanguage));
       if (selectedVoice) {
         utterance.voice = selectedVoice;
       }
       utterance.lang = selectedLanguage;
       utterance.rate = 1.0;
-      
       utteranceRef.current = utterance;
       utterance.onend = () => setIsSpeaking(false);
       utterance.onerror = () => setIsSpeaking(false);
@@ -90,17 +86,14 @@ const Analyze: React.FC = () => {
       setIsSpeaking(false);
     }
   };
-
   const handleStopNarration = () => {
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
   };
-
   const handleDownload = async () => {
     if (!accessibleContent && !(downloadFormat === 'html' && processedDocumentUrl)) return;
     setIsDownloading(true);
     const fileBase = (fileNames[0] ? fileNames[0].replace(/\.[^/.]+$/, '') : 'document') + '_accessible';
-
     const downloadBlob = (blob: Blob, filename: string) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -111,110 +104,136 @@ const Analyze: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     };
-
     try {
       switch (downloadFormat) {
-        case 'html': {
-          if (processedDocumentUrl) {
-            const link = document.createElement('a');
-            link.href = processedDocumentUrl;
-            link.download = `${fileBase}.html`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          } else {
-            const blob = new Blob([accessibleContent], { type: 'text/html;charset=utf-8' });
-            downloadBlob(blob, `${fileBase}.html`);
+        case 'html':
+          {
+            if (processedDocumentUrl) {
+              const link = document.createElement('a');
+              link.href = processedDocumentUrl;
+              link.download = `${fileBase}.html`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            } else {
+              const blob = new Blob([accessibleContent], {
+                type: 'text/html;charset=utf-8'
+              });
+              downloadBlob(blob, `${fileBase}.html`);
+            }
+            break;
           }
-          break;
-        }
-        case 'markdown': {
-          const Turndown = (await import('turndown')).default as any;
-          const td = new Turndown({ headingStyle: 'atx' });
-          const markdown = td.turndown(accessibleContent);
-          const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
-          downloadBlob(blob, `${fileBase}.md`);
-          break;
-        }
-        case 'txt': {
-          const el = document.createElement('div');
-          el.innerHTML = accessibleContent;
-          const text = el.textContent || '';
-          const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-          downloadBlob(blob, `${fileBase}.txt`);
-          break;
-        }
-        case 'pdf': {
-          const html2pdf: any = (await import('html2pdf.js')).default;
-          const container = document.createElement('div');
-          container.style.position = 'fixed';
-          container.style.left = '-9999px';
-          container.innerHTML = accessibleContent;
-          document.body.appendChild(container);
-          await html2pdf().from(container).set({
-            filename: `${fileBase}.pdf`,
-            jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['css', 'legacy'] },
-          }).save();
-          document.body.removeChild(container);
-          break;
-        }
-        default: {
-          const blob = new Blob([accessibleContent], { type: 'text/plain;charset=utf-8' });
-          downloadBlob(blob, `${fileBase}.txt`);
-        }
+        case 'markdown':
+          {
+            const Turndown = (await import('turndown')).default as any;
+            const td = new Turndown({
+              headingStyle: 'atx'
+            });
+            const markdown = td.turndown(accessibleContent);
+            const blob = new Blob([markdown], {
+              type: 'text/markdown;charset=utf-8'
+            });
+            downloadBlob(blob, `${fileBase}.md`);
+            break;
+          }
+        case 'txt':
+          {
+            const el = document.createElement('div');
+            el.innerHTML = accessibleContent;
+            const text = el.textContent || '';
+            const blob = new Blob([text], {
+              type: 'text/plain;charset=utf-8'
+            });
+            downloadBlob(blob, `${fileBase}.txt`);
+            break;
+          }
+        case 'pdf':
+          {
+            const html2pdf: any = (await import('html2pdf.js')).default;
+            const container = document.createElement('div');
+            container.style.position = 'fixed';
+            container.style.left = '-9999px';
+            container.innerHTML = accessibleContent;
+            document.body.appendChild(container);
+            await html2pdf().from(container).set({
+              filename: `${fileBase}.pdf`,
+              jsPDF: {
+                unit: 'pt',
+                format: 'a4',
+                orientation: 'portrait'
+              },
+              pagebreak: {
+                mode: ['css', 'legacy']
+              }
+            }).save();
+            document.body.removeChild(container);
+            break;
+          }
+        default:
+          {
+            const blob = new Blob([accessibleContent], {
+              type: 'text/plain;charset=utf-8'
+            });
+            downloadBlob(blob, `${fileBase}.txt`);
+          }
       }
     } catch (error) {
       console.error('Download failed:', error);
-      toast({ title: 'Download failed', description: 'Please try again.', variant: 'destructive' });
+      toast({
+        title: 'Download failed',
+        description: 'Please try again.',
+        variant: 'destructive'
+      });
     } finally {
       setIsDownloading(false);
     }
   };
-
   useEffect(() => {
     if (!files.length) return;
-
     const process = async () => {
       try {
         // Step 1: Upload to storage
         setCurrentStep(0);
         setProgress(10);
-
         const publicUrls: string[] = [];
         for (const file of files) {
           const folder = `incoming/${Date.now()}-${Math.random().toString(36).slice(2)}`;
           const path = `${folder}/${file.name}`;
-          const { data: uploadData, error: uploadError } = await supabase
-            .storage
-            .from('uploads')
-            .upload(path, file, { upsert: true });
+          const {
+            data: uploadData,
+            error: uploadError
+          } = await supabase.storage.from('uploads').upload(path, file, {
+            upsert: true
+          });
           if (uploadError) throw uploadError;
-
-          const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(uploadData.path);
+          const {
+            data: urlData
+          } = supabase.storage.from('uploads').getPublicUrl(uploadData.path);
           publicUrls.push(urlData.publicUrl);
         }
 
         // Step 2: Invoke Edge Function to analyze/process
         setCurrentStep(1);
         setProgress(40);
-        const { data, error } = await supabase.functions.invoke('process-document', {
-          body: { file_urls: publicUrls }
+        const {
+          data,
+          error
+        } = await supabase.functions.invoke('process-document', {
+          body: {
+            file_urls: publicUrls
+          }
         });
         if (error) throw error;
 
         // Step 3: Apply fixes/collect results
         setCurrentStep(2);
         setProgress(70);
-
         const content = data?.accessible_content || data?.accessibleContent || data?.accessible_text || data?.html || '';
         const sum = data?.summary || '';
         const processedUrl = data?.processed_document_url || data?.downloadUrl || data?.processed_url || data?.processedDocumentUrl || '';
-
         if (!content && !processedUrl) {
           throw new Error('Edge Function did not return processed content or URL.');
         }
-
         setAccessibleContent(content);
         setSummary(sum);
         if (processedUrl) setProcessedDocumentUrl(processedUrl);
@@ -233,14 +252,12 @@ const Analyze: React.FC = () => {
         setDone(true);
       }
     };
-
     process();
   }, [files, supabase]);
 
   // If user navigates here directly
   if (!files.length) {
-    return (
-      <main className="min-h-screen bg-background">
+    return <main className="min-h-screen bg-background">
         <Helmet>
           <title>Analyze Documents | Accessible AI</title>
           <meta name="description" content="Upload documents for AI-powered accessibility analysis and remediation." />
@@ -251,12 +268,9 @@ const Analyze: React.FC = () => {
           <p className="text-muted-foreground mb-6">Please upload a document first.</p>
           <Button onClick={() => navigate('/')}>Back to upload</Button>
         </section>
-      </main>
-    );
+      </main>;
   }
-
-  return (
-    <main className="min-h-screen bg-background">
+  return <main className="min-h-screen bg-background">
       <Helmet>
         <title>Processing Your Document | Accessible AI</title>
         <meta name="description" content="Processing and fixing document accessibility using AI. Live progress and final results." />
@@ -278,12 +292,10 @@ const Analyze: React.FC = () => {
               <span className="text-sm font-medium text-foreground">{steps[currentStep].label}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {fileNames.map((name, i) => (
-                <span key={i} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-accent-light text-foreground">
+              {fileNames.map((name, i) => <span key={i} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-accent-light text-foreground">
                   <FileText className="w-3 h-3" />
                   {name}
-                </span>
-              ))}
+                </span>)}
             </div>
           </div>
 
@@ -292,16 +304,12 @@ const Analyze: React.FC = () => {
             <p className="text-xs text-muted-foreground mt-2">{progress}% complete</p>
           </div>
 
-          {!done ? (
-            <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
+          {!done ? <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
               Working… This usually takes under a minute.
-            </div>
-          ) : (
-            <div className="mt-8 space-y-6">
+            </div> : <div className="mt-8 space-y-6">
               {/* Show everything when not in focus mode */}
-              {!focusMode && (
-                <>
+              {!focusMode && <>
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="w-6 h-6 text-success" />
                     <div>
@@ -313,8 +321,7 @@ const Analyze: React.FC = () => {
                     </div>
                   </div>
 
-                  {summary && (
-                    <article className="bg-success-light/40 border border-success/20 rounded-lg p-4">
+                  {summary && <article className="bg-success-light/40 border border-success/20 rounded-lg p-4">
                       <div className="flex items-start gap-2">
                         <Eye className="w-5 h-5 text-success mt-0.5" />
                         <div>
@@ -322,10 +329,8 @@ const Analyze: React.FC = () => {
                           <p className="text-sm text-muted-foreground mt-2">{summary}</p>
                         </div>
                       </div>
-                    </article>
-                  )}
-                </>
-              )}
+                    </article>}
+                </>}
 
               <AccessibilityToolbar className="mb-6" />
 
@@ -336,10 +341,9 @@ const Analyze: React.FC = () => {
                 </div>
                 
                 <div className="bg-background border rounded-md p-6 max-h-96 overflow-y-auto">
-                  <div
-                    className="prose prose-sm max-w-none text-foreground whitespace-pre-wrap"
-                    dangerouslySetInnerHTML={{ __html: accessibleContent || '<p>Accessible content will appear here after AI processing.</p>' }}
-                  />
+                  <div className="prose prose-sm max-w-none text-foreground whitespace-pre-wrap" dangerouslySetInnerHTML={{
+                __html: accessibleContent || '<p>Accessible content will appear here after AI processing.</p>'
+              }} />
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4 pt-4 border-t">
@@ -382,33 +386,23 @@ const Analyze: React.FC = () => {
                         </SelectContent>
                       </Select>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => (isSpeaking ? handleStopNarration() : handleNarrate())}
-                      disabled={!accessibleContent}
-                    >
-                      {isSpeaking ? (
-                        <>
+                    <Button variant="outline" size="sm" onClick={() => isSpeaking ? handleStopNarration() : handleNarrate()} disabled={!accessibleContent}>
+                      {isSpeaking ? <>
                           <Square className="w-4 h-4 mr-2" />
                           Stop
-                        </>
-                      ) : (
-                        <>
+                        </> : <>
                           <Volume2 className="w-4 h-4 mr-2" />
                           Listen
-                        </>
-                      )}
+                        </>}
                     </Button>
                   </div>
                 </div>
               </section>
 
-              {!focusMode && (
-                <div className="flex flex-wrap gap-3 items-center">
+              {!focusMode && <div className="flex flex-wrap gap-3 items-center">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">File type</span>
-                    <Select value={downloadFormat} onValueChange={(v) => setDownloadFormat(v as any)}>
+                    <Select value={downloadFormat} onValueChange={v => setDownloadFormat(v as any)}>
                       <SelectTrigger className="w-40">
                         <SelectValue placeholder="Choose format" />
                       </SelectTrigger>
@@ -420,27 +414,17 @@ const Analyze: React.FC = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button 
-                    onClick={handleDownload}
-                    disabled={isDownloading || !(accessibleContent || (downloadFormat === 'html' && processedDocumentUrl))}
-                    className="bg-gradient-primary hover:opacity-90"
-                  >
+                  <Button onClick={handleDownload} disabled={isDownloading || !(accessibleContent || downloadFormat === 'html' && processedDocumentUrl)} className="bg-gradient-primary hover:opacity-90">
                     <Download className="w-4 h-4 mr-2" />
                     {isDownloading ? 'Preparing...' : `Download ${downloadFormat.toUpperCase()}`}
                   </Button>
                   <Button variant="secondary" onClick={() => navigate('/')}>Process another document</Button>
-                </div>
-              )}
-            </div>
-          )}
+                </div>}
+            </div>}
         </article>
 
-        <aside className="mt-8 text-sm text-muted-foreground">
-          Note: For real AI processing, connect Supabase and add your GEMINI_API_KEY to Edge Function Secrets. Upload files to Supabase Storage, then call an Edge Function (Gemini) to extract, fix, summarize, and return accessible output and preview HTML. This screen will display those results.
-        </aside>
+        
       </section>
-    </main>
-  );
+    </main>;
 };
-
 export default Analyze;
