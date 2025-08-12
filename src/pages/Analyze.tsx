@@ -9,6 +9,7 @@ import { AccessibilityToolbar } from '@/components/accessibility-toolbar';
 import { HeaderBar } from '@/components/header-bar';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/components/ui/use-toast';
+import { extractTextFromFile } from '@/lib/extract-text';
 interface LocationState {
   files?: File[];
 }
@@ -212,16 +213,23 @@ const Analyze: React.FC = () => {
           publicUrls.push(urlData.publicUrl);
         }
 
-        // Step 2: Invoke Edge Function to analyze/process
+        // Step 2: Invoke Edge Function to analyze/process (send extracted text)
         setCurrentStep(1);
         setProgress(40);
-        const {
-          data,
-          error
-        } = await supabase.functions.invoke('process-document', {
+
+        let rawText = '';
+        try {
+          const extracted = await extractTextFromFile(files[0]);
+          rawText = extracted.text || '';
+        } catch (_) {
+          rawText = '';
+        }
+
+        const { data, error } = await supabase.functions.invoke('process-document', {
           body: {
-            file_urls: publicUrls
-          }
+            file_urls: publicUrls,
+            raw_text: rawText,
+          },
         });
         if (error) throw error;
 
