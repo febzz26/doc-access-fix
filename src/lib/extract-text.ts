@@ -15,8 +15,8 @@ export async function extractTextFromFile(file: File): Promise<{ text: string; c
   // PDF: extract text client-side using pdfjs-dist
   if (contentType === 'application/pdf') {
     try {
-      const pdfjsLib: any = await import('pdfjs-dist');
-      // Use CDN worker to avoid bundling complexity
+      const pdfjsLib: any = await import('pdfjs-dist/legacy/build/pdf');
+      // Use CDN worker to avoid bundling complexity (matching version)
       pdfjsLib.GlobalWorkerOptions.workerSrc =
         'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.js';
 

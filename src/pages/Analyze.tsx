@@ -43,7 +43,7 @@ const Analyze: React.FC = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
-  const [downloadFormat, setDownloadFormat] = useState<'html' | 'markdown' | 'pdf' | 'txt'>('html');
+  const [downloadFormat, setDownloadFormat] = useState<'html' | 'markdown' | 'pdf' | 'txt'>('pdf');
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // Load available voices and listen for focus mode changes
@@ -92,7 +92,7 @@ const Analyze: React.FC = () => {
     setIsSpeaking(false);
   };
   const handleDownload = async () => {
-    if (!accessibleContent && !(downloadFormat === 'html' && processedDocumentUrl)) return;
+    if (!accessibleContent && !((downloadFormat === 'html' || downloadFormat === 'pdf') && processedDocumentUrl)) return;
     setIsDownloading(true);
     const fileBase = (fileNames[0] ? fileNames[0].replace(/\.[^/.]+$/, '') : 'document') + '_accessible';
     const downloadBlob = (blob: Blob, filename: string) => {
@@ -154,18 +154,21 @@ const Analyze: React.FC = () => {
             const container = document.createElement('div');
             container.style.position = 'fixed';
             container.style.left = '-9999px';
-            container.innerHTML = accessibleContent;
+            let htmlSource = accessibleContent;
+            if (!htmlSource && processedDocumentUrl) {
+              try {
+                htmlSource = await fetch(processedDocumentUrl).then(r => r.text());
+              } catch {
+                htmlSource = '';
+              }
+            }
+            if (!htmlSource) throw new Error('No content available to generate PDF.');
+            container.innerHTML = htmlSource;
             document.body.appendChild(container);
             await html2pdf().from(container).set({
               filename: `${fileBase}.pdf`,
-              jsPDF: {
-                unit: 'pt',
-                format: 'a4',
-                orientation: 'portrait'
-              },
-              pagebreak: {
-                mode: ['css', 'legacy']
-              }
+              jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
+              pagebreak: { mode: ['css', 'legacy'] },
             }).save();
             document.body.removeChild(container);
             break;
@@ -193,36 +196,44 @@ const Analyze: React.FC = () => {
     if (!files.length) return;
     const process = async () => {
       try {
-        // Step 1: Upload to storage
+        // Step 1: Extract text client-side (prefer this over uploads)
         setCurrentStep(0);
         setProgress(10);
-        const publicUrls: string[] = [];
-        for (const file of files) {
-          const folder = `incoming/${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          const path = `${folder}/${file.name}`;
-          const {
-            data: uploadData,
-            error: uploadError
-          } = await supabase.storage.from('uploads').upload(path, file, {
-            upsert: true
-          });
-          if (uploadError) throw uploadError;
-          const {
-            data: urlData
-          } = supabase.storage.from('uploads').getPublicUrl(uploadData.path);
-          publicUrls.push(urlData.publicUrl);
-        }
-
-        // Step 2: Invoke Edge Function to analyze/process (send extracted text)
-        setCurrentStep(1);
-        setProgress(40);
-
         let rawText = '';
         try {
           const extracted = await extractTextFromFile(files[0]);
-          rawText = extracted.text || '';
+          rawText = (extracted.text || '').trim();
         } catch (_) {
           rawText = '';
+        }
+
+        // Conditionally upload original file(s) only if extraction failed
+        const publicUrls: string[] = [];
+        if (!rawText) {
+          for (const file of files) {
+            const folder = `incoming/${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const path = `${folder}/${file.name}`;
+            const { data: uploadData, error: uploadError } = await supabase.storage.from('uploads').upload(path, file, {
+              upsert: true
+            });
+            if (uploadError) {
+              console.warn('Upload failed, continuing with AI processing using minimal prompt:', uploadError);
+              continue;
+            }
+            const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(uploadData.path);
+            publicUrls.push(urlData.publicUrl);
+          }
+        }
+
+        // Step 2: Invoke Edge Function to analyze/process (send extracted text when available)
+        setCurrentStep(1);
+        setProgress(40);
+
+        if (!rawText && publicUrls.length === 0) {
+          const f = files[0];
+          const name = f?.name || 'document';
+          const type = f?.type || 'unknown';
+          rawText = `Binary file '${name}' with content-type ${type}. Please create an accessible HTML outline with placeholders for images and tables, and infer structure (headings, lists) where appropriate.`;
         }
 
         const { data, error } = await supabase.functions.invoke('process-document', {
@@ -422,7 +433,7 @@ const Analyze: React.FC = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button onClick={handleDownload} disabled={isDownloading || !(accessibleContent || downloadFormat === 'html' && processedDocumentUrl)} className="bg-gradient-primary hover:opacity-90">
+                  <Button onClick={handleDownload} disabled={isDownloading || !(accessibleContent || ((downloadFormat === 'html' || downloadFormat === 'pdf') && processedDocumentUrl))} className="bg-gradient-primary hover:opacity-90">
                     <Download className="w-4 h-4 mr-2" />
                     {isDownloading ? 'Preparing...' : `Download ${downloadFormat.toUpperCase()}`}
                   </Button>
