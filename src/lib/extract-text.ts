@@ -1,5 +1,3 @@
-import workerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url';
-
 export async function extractTextFromFile(file: File): Promise<{ text: string; contentType: string }> {
   const contentType = file.type || '';
 
@@ -18,8 +16,8 @@ export async function extractTextFromFile(file: File): Promise<{ text: string; c
   if (contentType === 'application/pdf') {
     try {
       const pdfjsLib: any = await import('pdfjs-dist');
-      // Use bundler-served worker to avoid cross-origin issues
-      pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+      // Use CDN worker to avoid bundling complexity
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.js';
 
       const arrayBuffer = await file.arrayBuffer();
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
