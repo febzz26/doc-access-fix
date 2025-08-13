@@ -21,129 +21,85 @@ function getSupabaseClient() {
   return createClient(supabaseUrl, serviceKey);
 }
 
-async function extractTextFromPdf(arrayBuffer: ArrayBuffer, url: string): Promise<string> {
+async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string> {
   try {
-    console.log('Processing PDF with OpenAI vision...');
+    console.log('Attempting comprehensive PDF text extraction...');
     
-    // For PDFs, we'll use OpenAI's vision model to read the content
-    const openaiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!openaiKey) {
-      console.log('No OpenAI key, falling back to Gemini for direct processing');
-      return 'PDF_DIRECT_PROCESSING_NEEDED';
-    }
-
-    // Convert first few pages of PDF to images and process with vision
-    // For now, let's use a direct approach with the PDF URL
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-2025-04-14',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a PDF text extraction specialist. Extract ALL text content from the document exactly as it appears. Return only the extracted text, preserving formatting, headings, and structure.'
-          },
-          {
-            role: 'user',
-            content: `Please extract all text content from this PDF document. The PDF is available at: ${url}\n\nReturn the complete text content exactly as it appears in the document.`
-          }
-        ],
-        max_tokens: 4000,
-        temperature: 0.1
-      }),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      const extractedText = data.choices[0]?.message?.content || '';
-      console.log(`OpenAI extracted ${extractedText.length} characters from PDF`);
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const decoder = new TextDecoder('latin-1');
+    const rawContent = decoder.decode(uint8Array);
+    
+    let extractedText = '';
+    
+    // Method 1: Extract text from parentheses (most common text storage in PDFs)
+    const parenthesesRegex = /\(([^)]*)\)/g;
+    let match;
+    while ((match = parenthesesRegex.exec(rawContent)) !== null) {
+      const text = match[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t')
+        .replace(/\\(.)/g, '$1');
       
-      if (extractedText.length > 50) {
-        return extractedText;
+      if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
+        extractedText += text + ' ';
       }
     }
     
-    console.log('OpenAI extraction failed, marking for direct processing');
-    return 'PDF_DIRECT_PROCESSING_NEEDED';
+    // Method 2: Extract from Tj commands (text showing operators)
+    const tjRegex = /\(([^)]*)\)\s*Tj/g;
+    while ((match = tjRegex.exec(rawContent)) !== null) {
+      const text = match[1];
+      if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
+        extractedText += text + ' ';
+      }
+    }
+    
+    // Method 3: Extract from TJ array commands
+    const arrayRegex = /\[([^\]]*)\]\s*TJ/g;
+    while ((match = arrayRegex.exec(rawContent)) !== null) {
+      const arrayContent = match[1];
+      const textMatches = arrayContent.match(/\(([^)]*)\)/g);
+      if (textMatches) {
+        for (const textMatch of textMatches) {
+          const text = textMatch.slice(1, -1);
+          if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
+            extractedText += text + ' ';
+          }
+        }
+      }
+    }
+    
+    // Method 4: Look for readable ASCII text sequences
+    const asciiRegex = /[A-Za-z][A-Za-z0-9\s.,;:!?'"()-]{10,}/g;
+    const asciiMatches = rawContent.match(asciiRegex);
+    if (asciiMatches) {
+      for (const match of asciiMatches) {
+        // Filter out PDF commands and binary data
+        if (!match.includes('/') && !match.includes('>>') && !match.includes('<<') && 
+            !match.includes('obj') && !match.includes('endobj')) {
+          extractedText += match + ' ';
+        }
+      }
+    }
+    
+    // Clean up the extracted text
+    extractedText = extractedText
+      .replace(/\s+/g, ' ')
+      .replace(/[^\x20-\x7E\n\r\t]/g, '')
+      .trim();
+    
+    console.log(`PDF extraction found ${extractedText.length} characters`);
+    
+    if (extractedText.length > 50) {
+      return extractedText;
+    }
+    
+    console.log('PDF text extraction yielded minimal content');
+    return '';
   } catch (error) {
-    console.error('OpenAI PDF extraction error:', error);
-    return 'PDF_DIRECT_PROCESSING_NEEDED';
-  }
-}
-
-async function generateWithAI(prompt: string) {
-  // Try OpenAI first, then fall back to Gemini
-  const openaiKey = Deno.env.get("OPENAI_API_KEY");
-  const geminiKey = Deno.env.get("GEMINI_API_KEY");
-  
-  if (openaiKey && prompt !== 'PDF_DIRECT_PROCESSING_NEEDED') {
-    return await generateWithOpenAI(prompt);
-  } else if (geminiKey) {
-    return await generateWithGemini(prompt);
-  } else {
-    throw new Error("No AI API keys available");
-  }
-}
-
-async function generateWithOpenAI(prompt: string) {
-  const openaiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!openaiKey) {
-    throw new Error("OPENAI_API_KEY is not set in Supabase secrets");
-  }
-
-  console.log('Using OpenAI for processing');
-
-  const systemPrompt = `You are an expert accessibility remediation specialist. Convert document content into clean, accessible HTML.
-
-CRITICAL REQUIREMENTS:
-1. Return ONLY JSON with keys: "accessible_html" (string), "summary" (string). No code fences, no extra text.
-2. The accessible_html must be a complete HTML fragment wrapped in <article> tags.
-3. PRESERVE ALL ACTUAL TEXT CONTENT exactly as provided.
-4. Use proper semantic HTML: <h1>, <h2>, <section>, <p>, <ul>, <ol>, <table>, etc.
-5. Ensure WCAG 2.2 AA compliance with proper headings hierarchy.
-6. Create meaningful, accessible content that serves users with disabilities.`;
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${openaiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1-2025-04-14',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Process this document content:\n\n${prompt}` }
-      ],
-      max_tokens: 4000,
-      temperature: 0.1,
-      response_format: { type: "json_object" }
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('OpenAI API error:', errorText);
-    throw new Error(`OpenAI API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content || "";
-  
-  try {
-    const parsed = JSON.parse(content);
-    console.log('Successfully parsed OpenAI response');
-    return parsed;
-  } catch (e) {
-    console.error('Failed to parse OpenAI response:', e);
-    return {
-      accessible_html: `<article><h1>Processing Error</h1><p>${content || "Could not process document"}</p></article>`,
-      summary: "Document processing encountered an error.",
-    };
+    console.error('PDF extraction error:', error);
+    return '';
   }
 }
 
@@ -174,7 +130,7 @@ async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
   }
 }
 
-async function generateWithGemini(prompt: string) {
+async function generateWithGemini(prompt: string, fileName?: string) {
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   if (!geminiKey) {
     throw new Error("GEMINI_API_KEY is not set in Supabase secrets");
@@ -182,31 +138,30 @@ async function generateWithGemini(prompt: string) {
 
   console.log('Using Gemini API for processing');
 
-  const systemInstructions = `You are an expert accessibility remediation specialist. Your job is to convert ANY document content into a clean, accessible HTML format.
+  const systemInstructions = `You are an expert accessibility remediation specialist. Your job is to convert document content into clean, accessible HTML format.
 
 CRITICAL REQUIREMENTS:
 1. Return ONLY JSON with keys: "accessible_html" (string), "summary" (string). No code fences, no extra text.
 2. The accessible_html must be a complete HTML fragment wrapped in <article> tags.
-3. PRESERVE ALL ACTUAL TEXT CONTENT. If given extracted text, use it exactly as provided.
+3. PRESERVE ALL ACTUAL TEXT CONTENT exactly as provided. Do not create generic placeholder content.
 4. Use proper semantic HTML: <h1>, <h2>, <section>, <p>, <ul>, <ol>, <table>, etc.
 5. Ensure WCAG 2.2 AA compliance with proper headings hierarchy.
-6. Add alt text for images, captions for tables, and proper form labels.
-7. If you receive "PDF_NEEDS_AI_PROCESSING", create a professional accessible document with proper structure.
-8. Never create generic placeholder content - always make the content meaningful and accessible.
+6. Add meaningful alt text for images, proper table captions, and semantic structure.
+7. If given extracted text content, use it exactly as the source material.
+8. Create a meaningful summary that reflects the actual document content.
 
-SPECIAL HANDLING:
-- If input is "PDF_NEEDS_AI_PROCESSING": Create a well-structured accessible document
-- If input contains extracted text: Preserve it exactly and make it accessible
-- If input is HTML: Clean it and ensure accessibility compliance
+IMPORTANT: If you receive extracted text from a PDF or document, that IS the actual content to process. Do not create generic examples or placeholders.`;
 
-Focus on creating meaningful, accessible content that serves users with disabilities.`;
+  const userPrompt = fileName 
+    ? `Process the content from this document file "${fileName}":\n\n${prompt}`
+    : `Process this document content:\n\n${prompt}`;
 
   const body = {
     contents: [
       {
         role: "user", 
         parts: [
-          { text: `${systemInstructions}\n\nDocument content to process:\n\n${prompt}` },
+          { text: `${systemInstructions}\n\n${userPrompt}` },
         ],
       },
     ],
@@ -219,65 +174,72 @@ Focus on creating meaningful, accessible content that serves users with disabili
   };
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const resp = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiKey,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }
-    );
-
-    if (resp.ok) {
-      const data = await resp.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      console.log('Gemini raw response:', text.substring(0, 200));
-      
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed && parsed.accessible_html && parsed.summary) {
-          console.log('Successfully parsed Gemini response');
-          return parsed;
+    try {
+      const resp = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiKey,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
         }
-        throw new Error("Gemini returned unexpected JSON shape");
-      } catch (e) {
-        console.error('Failed to parse Gemini response:', e);
-        return {
-          accessible_html: `<article><h1>Processing Error</h1><p>${text || "Could not process document"}</p></article>`,
-          summary: "Document processing encountered an error.",
-        };
-      }
-    }
+      );
 
-    const errorText = await resp.text().catch(() => '');
-    console.error(`Gemini API error (attempt ${attempt + 1}):`, errorText);
-    await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        console.log('Gemini raw response:', text.substring(0, 200));
+        
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && parsed.accessible_html && parsed.summary) {
+            console.log('Successfully parsed Gemini response');
+            return parsed;
+          }
+          throw new Error("Gemini returned unexpected JSON shape");
+        } catch (e) {
+          console.error('Failed to parse Gemini response:', e);
+          return {
+            accessible_html: `<article><h1>Processing Error</h1><p>${text || "Could not process document"}</p></article>`,
+            summary: "Document processing encountered an error.",
+          };
+        }
+      }
+
+      const errorText = await resp.text().catch(() => '');
+      console.error(`Gemini API error (attempt ${attempt + 1}):`, errorText);
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    } catch (error) {
+      console.error(`Gemini API error (attempt ${attempt + 1}):`, error);
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
   }
 
   throw new Error("Gemini API failed after 3 attempts");
 }
 
-async function fetchAndExtractText(url: string): Promise<{ text: string; contentType: string }> {
+async function fetchAndExtractText(url: string): Promise<{ text: string; contentType: string; fileName: string }> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Failed to fetch file: ${response.status}`);
   
   const contentType = response.headers.get("content-type") || "";
   const arrayBuffer = await response.arrayBuffer();
+  const fileName = url.split("/").pop() || "document";
 
-  console.log(`Processing file with content-type: ${contentType}`);
+  console.log(`Processing file "${fileName}" with content-type: ${contentType}`);
 
   // Handle text files directly
   if (contentType.startsWith("text/") || contentType.includes("json") || contentType.includes("xml") || contentType.includes("html")) {
     const text = new TextDecoder().decode(arrayBuffer);
-    return { text, contentType };
+    return { text, contentType, fileName };
   }
 
   // Handle PDF files
   if (contentType === "application/pdf" || url.toLowerCase().endsWith('.pdf')) {
     try {
-      const text = await extractTextFromPdf(arrayBuffer, url);
+      const text = await extractTextFromPdf(arrayBuffer);
       if (text.length > 0) {
-        return { text, contentType };
+        console.log(`Successfully extracted ${text.length} characters from PDF`);
+        return { text, contentType, fileName };
       }
     } catch (error) {
       console.error('PDF extraction failed:', error);
@@ -289,28 +251,22 @@ async function fetchAndExtractText(url: string): Promise<{ text: string; content
     try {
       const text = await extractTextFromDocx(arrayBuffer);
       if (text.length > 0) {
-        return { text, contentType };
+        return { text, contentType, fileName };
       }
     } catch (error) {
       console.error('DOCX extraction failed:', error);
     }
   }
 
-  // For other file types, provide meaningful context
-  const filename = url.split("/").pop() || "document";
+  // For files where extraction failed, provide file info for AI processing
   const fileSize = arrayBuffer.byteLength;
-  const text = `Document: ${filename}
+  const text = `File: ${fileName}
 Content Type: ${contentType}
 File Size: ${Math.round(fileSize / 1024)}KB
 
-This document requires manual processing to create accessible content. Please provide:
-- Clear headings and structure
-- Alt text for any images
-- Table headers and captions
-- Proper reading order
-- WCAG 2.2 AA compliance`;
+Note: This appears to be a ${contentType} file. Please process this document and create accessible content based on the file type and context.`;
 
-  return { text, contentType };
+  return { text, contentType, fileName };
 }
 
 async function uploadProcessedHtml(html: string) {
@@ -348,6 +304,7 @@ serve(async (req) => {
     }
 
     let sourceText = providedText;
+    let fileName = '';
     
     // If no text provided or it's a backend processing marker, extract from uploaded file
     if (!sourceText || sourceText.startsWith('BACKEND_PROCESSING_REQUIRED:')) {
@@ -355,16 +312,17 @@ serve(async (req) => {
         throw new Error("No file URLs provided for backend processing");
       }
       
-      const { text } = await fetchAndExtractText(urls[0]);
+      const { text, fileName: extractedFileName } = await fetchAndExtractText(urls[0]);
       sourceText = text;
-      console.log('Extracted text length:', text.length);
+      fileName = extractedFileName;
+      console.log(`Extracted ${text.length} characters from file: ${fileName}`);
     }
 
     if (!sourceText || sourceText.trim().length === 0) {
       throw new Error("No content could be extracted from the document");
     }
 
-    const { accessible_html, summary } = await generateWithAI(sourceText);
+    const { accessible_html, summary } = await generateWithGemini(sourceText, fileName);
     const processed_document_url = await uploadProcessedHtml(accessible_html);
 
     return new Response(
