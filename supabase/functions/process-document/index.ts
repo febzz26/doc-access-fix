@@ -21,67 +21,129 @@ function getSupabaseClient() {
   return createClient(supabaseUrl, serviceKey);
 }
 
-async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string> {
+async function extractTextFromPdf(arrayBuffer: ArrayBuffer, url: string): Promise<string> {
   try {
-    // For PDF files, extract readable text using simple byte parsing
-    const uint8Array = new Uint8Array(arrayBuffer);
-    let text = '';
+    console.log('Processing PDF with OpenAI vision...');
     
-    // Convert to string and look for text content
-    const decoder = new TextDecoder('latin-1');
-    const content = decoder.decode(uint8Array);
-    
-    // Extract text from PDF streams - look for common text patterns
-    const textRegex = /\((.*?)\)/g;
-    const matches = content.match(textRegex);
-    
-    if (matches) {
-      for (const match of matches) {
-        const cleanText = match.slice(1, -1)
-          .replace(/\\n/g, '\n')
-          .replace(/\\r/g, '\r')
-          .replace(/\\t/g, '\t')
-          .replace(/\\(.)/g, '$1');
-        
-        // Only include if it looks like actual text content
-        if (cleanText.length > 2 && /[a-zA-Z]/.test(cleanText)) {
-          text += cleanText + ' ';
-        }
-      }
+    // For PDFs, we'll use OpenAI's vision model to read the content
+    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openaiKey) {
+      console.log('No OpenAI key, falling back to Gemini for direct processing');
+      return 'PDF_DIRECT_PROCESSING_NEEDED';
     }
-    
-    // Also try to find text in streams
-    const streamRegex = /stream\s*(.*?)\s*endstream/gs;
-    const streamMatches = content.match(streamRegex);
-    
-    if (streamMatches) {
-      for (const stream of streamMatches) {
-        // Look for text operators in the stream
-        const textOps = stream.match(/\([^)]+\)\s*Tj/g);
-        if (textOps) {
-          for (const op of textOps) {
-            const textMatch = op.match(/\(([^)]+)\)/);
-            if (textMatch) {
-              text += textMatch[1] + ' ';
-            }
+
+    // Convert first few pages of PDF to images and process with vision
+    // For now, let's use a direct approach with the PDF URL
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-2025-04-14',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a PDF text extraction specialist. Extract ALL text content from the document exactly as it appears. Return only the extracted text, preserving formatting, headings, and structure.'
+          },
+          {
+            role: 'user',
+            content: `Please extract all text content from this PDF document. The PDF is available at: ${url}\n\nReturn the complete text content exactly as it appears in the document.`
           }
-        }
+        ],
+        max_tokens: 4000,
+        temperature: 0.1
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const extractedText = data.choices[0]?.message?.content || '';
+      console.log(`OpenAI extracted ${extractedText.length} characters from PDF`);
+      
+      if (extractedText.length > 50) {
+        return extractedText;
       }
     }
     
-    text = text.trim();
-    console.log(`PDF text extraction found ${text.length} characters`);
-    
-    if (text.length > 20) {
-      return text;
-    }
-    
-    // If extraction failed, indicate we need AI processing
-    console.log('PDF text extraction yielded minimal content, marking for AI processing');
-    return 'PDF_NEEDS_AI_PROCESSING';
+    console.log('OpenAI extraction failed, marking for direct processing');
+    return 'PDF_DIRECT_PROCESSING_NEEDED';
   } catch (error) {
-    console.error('PDF extraction error:', error);
-    return 'PDF_NEEDS_AI_PROCESSING';
+    console.error('OpenAI PDF extraction error:', error);
+    return 'PDF_DIRECT_PROCESSING_NEEDED';
+  }
+}
+
+async function generateWithAI(prompt: string) {
+  // Try OpenAI first, then fall back to Gemini
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  
+  if (openaiKey && prompt !== 'PDF_DIRECT_PROCESSING_NEEDED') {
+    return await generateWithOpenAI(prompt);
+  } else if (geminiKey) {
+    return await generateWithGemini(prompt);
+  } else {
+    throw new Error("No AI API keys available");
+  }
+}
+
+async function generateWithOpenAI(prompt: string) {
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) {
+    throw new Error("OPENAI_API_KEY is not set in Supabase secrets");
+  }
+
+  console.log('Using OpenAI for processing');
+
+  const systemPrompt = `You are an expert accessibility remediation specialist. Convert document content into clean, accessible HTML.
+
+CRITICAL REQUIREMENTS:
+1. Return ONLY JSON with keys: "accessible_html" (string), "summary" (string). No code fences, no extra text.
+2. The accessible_html must be a complete HTML fragment wrapped in <article> tags.
+3. PRESERVE ALL ACTUAL TEXT CONTENT exactly as provided.
+4. Use proper semantic HTML: <h1>, <h2>, <section>, <p>, <ul>, <ol>, <table>, etc.
+5. Ensure WCAG 2.2 AA compliance with proper headings hierarchy.
+6. Create meaningful, accessible content that serves users with disabilities.`;
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openaiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4.1-2025-04-14',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Process this document content:\n\n${prompt}` }
+      ],
+      max_tokens: 4000,
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenAI API error:', errorText);
+    throw new Error(`OpenAI API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices[0]?.message?.content || "";
+  
+  try {
+    const parsed = JSON.parse(content);
+    console.log('Successfully parsed OpenAI response');
+    return parsed;
+  } catch (e) {
+    console.error('Failed to parse OpenAI response:', e);
+    return {
+      accessible_html: `<article><h1>Processing Error</h1><p>${content || "Could not process document"}</p></article>`,
+      summary: "Document processing encountered an error.",
+    };
   }
 }
 
@@ -213,7 +275,7 @@ async function fetchAndExtractText(url: string): Promise<{ text: string; content
   // Handle PDF files
   if (contentType === "application/pdf" || url.toLowerCase().endsWith('.pdf')) {
     try {
-      const text = await extractTextFromPdf(arrayBuffer);
+      const text = await extractTextFromPdf(arrayBuffer, url);
       if (text.length > 0) {
         return { text, contentType };
       }
@@ -302,7 +364,7 @@ serve(async (req) => {
       throw new Error("No content could be extracted from the document");
     }
 
-    const { accessible_html, summary } = await generateWithGemini(sourceText);
+    const { accessible_html, summary } = await generateWithAI(sourceText);
     const processed_document_url = await uploadProcessedHtml(accessible_html);
 
     return new Response(
