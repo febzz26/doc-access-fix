@@ -196,20 +196,30 @@ const Analyze: React.FC = () => {
     if (!files.length) return;
     const process = async () => {
       try {
-        // Step 1: Extract text client-side (prefer this over uploads)
+        // Step 1: Try client-side text extraction first
         setCurrentStep(0);
         setProgress(10);
         let rawText = '';
+        let shouldUploadFile = false;
+        
         try {
           const extracted = await extractTextFromFile(files[0]);
           rawText = (extracted.text || '').trim();
-        } catch (_) {
+          
+          // Check if we need backend processing
+          if (rawText.startsWith('BACKEND_PROCESSING_REQUIRED:')) {
+            shouldUploadFile = true;
+            rawText = '';
+          }
+        } catch (error) {
+          console.warn('Client-side extraction failed:', error);
+          shouldUploadFile = true;
           rawText = '';
         }
 
-        // Conditionally upload original file(s) only if extraction failed
+        // Step 2: Upload file if needed for backend processing
         const publicUrls: string[] = [];
-        if (!rawText) {
+        if (shouldUploadFile || !rawText) {
           for (const file of files) {
             const folder = `incoming/${Date.now()}-${Math.random().toString(36).slice(2)}`;
             const path = `${folder}/${file.name}`;
@@ -217,23 +227,24 @@ const Analyze: React.FC = () => {
               upsert: true
             });
             if (uploadError) {
-              console.warn('Upload failed, continuing with AI processing using minimal prompt:', uploadError);
-              continue;
+              console.warn('Upload failed:', uploadError);
+              throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
             }
             const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(uploadData.path);
             publicUrls.push(urlData.publicUrl);
           }
         }
 
-        // Step 2: Invoke Edge Function to analyze/process (send extracted text when available)
+        // Step 3: Process through Edge Function
         setCurrentStep(1);
         setProgress(40);
 
+        // Always provide file context, even if we have extracted text
         if (!rawText && publicUrls.length === 0) {
           const f = files[0];
           const name = f?.name || 'document';
           const type = f?.type || 'unknown';
-          rawText = `Binary file '${name}' with content-type ${type}. Please create an accessible HTML outline with placeholders for images and tables, and infer structure (headings, lists) where appropriate.`;
+          rawText = `Process file '${name}' with content-type ${type}. Create accessible content from this document.`;
         }
 
         const { data, error } = await supabase.functions.invoke('process-document', {
