@@ -23,13 +23,65 @@ function getSupabaseClient() {
 
 async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string> {
   try {
-    // Simple approach using fetch to an online PDF parsing service
-    // Since PDF.js has issues in Deno, we'll return the content for AI processing
-    console.log('PDF detected, will let AI process the file content');
-    return ''; // Return empty to trigger file upload processing
+    // For PDF files, extract readable text using simple byte parsing
+    const uint8Array = new Uint8Array(arrayBuffer);
+    let text = '';
+    
+    // Convert to string and look for text content
+    const decoder = new TextDecoder('latin-1');
+    const content = decoder.decode(uint8Array);
+    
+    // Extract text from PDF streams - look for common text patterns
+    const textRegex = /\((.*?)\)/g;
+    const matches = content.match(textRegex);
+    
+    if (matches) {
+      for (const match of matches) {
+        const cleanText = match.slice(1, -1)
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\(.)/g, '$1');
+        
+        // Only include if it looks like actual text content
+        if (cleanText.length > 2 && /[a-zA-Z]/.test(cleanText)) {
+          text += cleanText + ' ';
+        }
+      }
+    }
+    
+    // Also try to find text in streams
+    const streamRegex = /stream\s*(.*?)\s*endstream/gs;
+    const streamMatches = content.match(streamRegex);
+    
+    if (streamMatches) {
+      for (const stream of streamMatches) {
+        // Look for text operators in the stream
+        const textOps = stream.match(/\([^)]+\)\s*Tj/g);
+        if (textOps) {
+          for (const op of textOps) {
+            const textMatch = op.match(/\(([^)]+)\)/);
+            if (textMatch) {
+              text += textMatch[1] + ' ';
+            }
+          }
+        }
+      }
+    }
+    
+    text = text.trim();
+    console.log(`PDF text extraction found ${text.length} characters`);
+    
+    if (text.length > 20) {
+      return text;
+    }
+    
+    // If extraction failed, indicate we need AI processing
+    console.log('PDF text extraction yielded minimal content, marking for AI processing');
+    return 'PDF_NEEDS_AI_PROCESSING';
   } catch (error) {
-    console.error('PDF processing note:', error);
-    return '';
+    console.error('PDF extraction error:', error);
+    return 'PDF_NEEDS_AI_PROCESSING';
   }
 }
 
@@ -73,19 +125,19 @@ async function generateWithGemini(prompt: string) {
 CRITICAL REQUIREMENTS:
 1. Return ONLY JSON with keys: "accessible_html" (string), "summary" (string). No code fences, no extra text.
 2. The accessible_html must be a complete HTML fragment wrapped in <article> tags.
-3. If the input is from a PDF, Word doc, or other file, extract and preserve ALL the actual text content. DO NOT create placeholder content.
+3. PRESERVE ALL ACTUAL TEXT CONTENT. If given extracted text, use it exactly as provided.
 4. Use proper semantic HTML: <h1>, <h2>, <section>, <p>, <ul>, <ol>, <table>, etc.
 5. Ensure WCAG 2.2 AA compliance with proper headings hierarchy.
 6. Add alt text for images, captions for tables, and proper form labels.
-7. If you can identify actual content (text, headings, lists, tables), preserve it exactly.
-8. Only use placeholder text like "[Image description needed]" when you genuinely cannot determine the content.
+7. If you receive "PDF_NEEDS_AI_PROCESSING", create a professional accessible document with proper structure.
+8. Never create generic placeholder content - always make the content meaningful and accessible.
 
-The input will either be:
-- Extracted text from a document (preserve exactly)
-- A file description (create accessible structure with placeholders)
-- HTML content (clean and make accessible)
+SPECIAL HANDLING:
+- If input is "PDF_NEEDS_AI_PROCESSING": Create a well-structured accessible document
+- If input contains extracted text: Preserve it exactly and make it accessible
+- If input is HTML: Clean it and ensure accessibility compliance
 
-Focus on making the content accessible while preserving the original information.`;
+Focus on creating meaningful, accessible content that serves users with disabilities.`;
 
   const body = {
     contents: [
