@@ -1,4 +1,5 @@
-import workerSrc from 'pdfjs-dist/build/pdf.worker.min.js?url';
+// Use CDN URL for PDF.js worker to avoid build issues
+const workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.js';
 
 export async function extractTextFromFile(file: File): Promise<{ text: string; contentType: string }> {
   const contentType = file.type || '';
