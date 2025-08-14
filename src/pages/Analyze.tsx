@@ -4,7 +4,7 @@ import { Helmet } from 'react-helmet-async';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square, Download, Eye, Languages } from 'lucide-react';
+import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square, Download, Eye, Languages, Globe } from 'lucide-react';
 import { AccessibilityToolbar } from '@/components/accessibility-toolbar';
 import { HeaderBar } from '@/components/header-bar';
 import { supabase } from '@/integrations/supabase/client';
@@ -45,6 +45,9 @@ const Analyze: React.FC = () => {
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
   const [downloadFormat, setDownloadFormat] = useState<'html' | 'markdown' | 'pdf' | 'txt'>('pdf');
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translatedContent, setTranslatedContent] = useState('');
+  const [currentLanguage, setCurrentLanguage] = useState('en');
 
   // Load available voices and listen for focus mode changes
   useEffect(() => {
@@ -64,8 +67,31 @@ const Analyze: React.FC = () => {
     };
   }, []);
   const fileNames = useMemo(() => files.map(f => f.name), [files]);
+
+  const languageOptions = [
+    { code: 'en', name: 'English' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'fr', name: 'French' },
+    { code: 'de', name: 'German' },
+    { code: 'it', name: 'Italian' },
+    { code: 'pt', name: 'Portuguese' },
+    { code: 'ru', name: 'Russian' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'ko', name: 'Korean' },
+    { code: 'zh', name: 'Chinese (Simplified)' },
+    { code: 'ar', name: 'Arabic' },
+    { code: 'hi', name: 'Hindi' },
+    { code: 'pl', name: 'Polish' },
+    { code: 'nl', name: 'Dutch' },
+    { code: 'sv', name: 'Swedish' },
+    { code: 'da', name: 'Danish' },
+    { code: 'no', name: 'Norwegian' },
+    { code: 'fi', name: 'Finnish' },
+    { code: 'cs', name: 'Czech' },
+    { code: 'tr', name: 'Turkish' },
+  ];
   const handleNarrate = () => {
-    const text = accessibleContent || summary;
+    const text = translatedContent || accessibleContent || summary;
     if (!text) return;
     try {
       window.speechSynthesis.cancel();
@@ -100,8 +126,43 @@ const Analyze: React.FC = () => {
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
   };
+  const handleTranslate = async (targetLanguage: string) => {
+    if (!accessibleContent || targetLanguage === currentLanguage) return;
+    
+    setIsTranslating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-document', {
+        body: {
+          content: accessibleContent,
+          targetLanguage,
+          sourceLanguage: currentLanguage
+        }
+      });
+
+      if (error) throw error;
+
+      setTranslatedContent(data.translatedContent);
+      setCurrentLanguage(targetLanguage);
+      
+      toast({
+        title: 'Translation completed',
+        description: `Document translated to ${languageOptions.find(l => l.code === targetLanguage)?.name}`,
+      });
+    } catch (error: any) {
+      console.error('Translation failed:', error);
+      toast({
+        title: 'Translation failed',
+        description: error?.message || 'Please try again later.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const handleDownload = async () => {
-    if (!accessibleContent && !((downloadFormat === 'html' || downloadFormat === 'pdf') && processedDocumentUrl)) return;
+    const contentToDownload = translatedContent || accessibleContent;
+    if (!contentToDownload && !((downloadFormat === 'html' || downloadFormat === 'pdf') && processedDocumentUrl)) return;
     setIsDownloading(true);
     const fileBase = (fileNames[0] ? fileNames[0].replace(/\.[^/.]+$/, '') : 'document') + '_accessible';
     const downloadBlob = (blob: Blob, filename: string) => {
@@ -126,7 +187,7 @@ const Analyze: React.FC = () => {
               link.click();
               document.body.removeChild(link);
             } else {
-              const blob = new Blob([accessibleContent], {
+              const blob = new Blob([contentToDownload], {
                 type: 'text/html;charset=utf-8'
               });
               downloadBlob(blob, `${fileBase}.html`);
@@ -139,7 +200,7 @@ const Analyze: React.FC = () => {
             const td = new Turndown({
               headingStyle: 'atx'
             });
-            const markdown = td.turndown(accessibleContent);
+            const markdown = td.turndown(contentToDownload);
             const blob = new Blob([markdown], {
               type: 'text/markdown;charset=utf-8'
             });
@@ -149,7 +210,7 @@ const Analyze: React.FC = () => {
         case 'txt':
           {
             const el = document.createElement('div');
-            el.innerHTML = accessibleContent;
+            el.innerHTML = contentToDownload;
             const text = el.textContent || '';
             const blob = new Blob([text], {
               type: 'text/plain;charset=utf-8'
@@ -163,7 +224,7 @@ const Analyze: React.FC = () => {
             const container = document.createElement('div');
             container.style.position = 'fixed';
             container.style.left = '-9999px';
-            let htmlSource = accessibleContent;
+            let htmlSource = contentToDownload;
             if (!htmlSource && processedDocumentUrl) {
               try {
                 htmlSource = await fetch(processedDocumentUrl).then(r => r.text());
@@ -184,7 +245,7 @@ const Analyze: React.FC = () => {
           }
         default:
           {
-            const blob = new Blob([accessibleContent], {
+            const blob = new Blob([contentToDownload], {
               type: 'text/plain;charset=utf-8'
             });
             downloadBlob(blob, `${fileBase}.txt`);
@@ -409,9 +470,44 @@ const Analyze: React.FC = () => {
                 
                 <div className="bg-background border rounded-md p-6 max-h-96 overflow-y-auto">
                   <div className="prose prose-sm max-w-none text-foreground whitespace-pre-wrap" dangerouslySetInnerHTML={{
-                __html: accessibleContent || '<p>Accessible content will appear here after AI processing.</p>'
+                __html: translatedContent || accessibleContent || '<p>Accessible content will appear here after AI processing.</p>'
               }} />
                 </div>
+
+                {/* Translation Controls */}
+                {accessibleContent && (
+                  <div className="mt-4 p-4 bg-accent-light/50 border rounded-lg">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-3">
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-primary" />
+                        <span className="text-sm font-medium text-foreground">Translate Document:</span>
+                      </div>
+                      <Select value={currentLanguage} onValueChange={handleTranslate} disabled={isTranslating}>
+                        <SelectTrigger className="w-48">
+                          <SelectValue placeholder="Select language" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {languageOptions.map((lang) => (
+                            <SelectItem key={lang.code} value={lang.code}>
+                              {lang.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {isTranslating && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Translating...
+                        </div>
+                      )}
+                    </div>
+                    {translatedContent && currentLanguage !== 'en' && (
+                      <p className="text-xs text-muted-foreground">
+                        Document translated to {languageOptions.find(l => l.code === currentLanguage)?.name}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4 pt-4 border-t">
                   <div className="text-xs text-muted-foreground">
