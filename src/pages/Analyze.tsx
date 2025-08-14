@@ -101,7 +101,14 @@ const Analyze: React.FC = () => {
     setIsSpeaking(false);
   };
   const handleDownload = async () => {
-    if (!accessibleContent && !((downloadFormat === 'html' || downloadFormat === 'pdf') && processedDocumentUrl)) return;
+    if (!accessibleContent && !processedDocumentUrl) {
+      toast({
+        title: 'No content available',
+        description: 'Please process a document first before downloading.',
+        variant: 'destructive'
+      });
+      return;
+    }
     setIsDownloading(true);
     const fileBase = (fileNames[0] ? fileNames[0].replace(/\.[^/.]+$/, '') : 'document') + '_accessible';
     const downloadBlob = (blob: Blob, filename: string) => {
@@ -481,7 +488,7 @@ const Analyze: React.FC = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button onClick={handleDownload} disabled={isDownloading || !(accessibleContent || ((downloadFormat === 'html' || downloadFormat === 'pdf') && processedDocumentUrl))} className="bg-gradient-primary hover:opacity-90">
+                  <Button onClick={handleDownload} disabled={isDownloading || (!accessibleContent && !processedDocumentUrl)} className="bg-gradient-primary hover:opacity-90">
                     <Download className="w-4 h-4 mr-2" />
                     {isDownloading ? 'Preparing...' : `Download ${downloadFormat.toUpperCase()}`}
                   </Button>
