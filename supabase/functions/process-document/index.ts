@@ -23,21 +23,93 @@ function getSupabaseClient() {
 
 async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string> {
   try {
-    console.log('Attempting comprehensive PDF text extraction...');
+    console.log('Starting PDF text extraction...');
     
+    // Convert to base64 for Gemini vision processing
     const uint8Array = new Uint8Array(arrayBuffer);
+    const base64 = btoa(String.fromCharCode(...uint8Array));
+    
+    console.log(`PDF file size: ${arrayBuffer.byteLength} bytes`);
+    
+    // Use Gemini Vision to extract text from PDF
+    const geminiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!geminiKey) {
+      throw new Error("GEMINI_API_KEY not found");
+    }
+
+    const body = {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: "Extract all text content from this PDF document. Return only the plain text content, preserving the structure but removing any formatting. Do not add any commentary or explanations - just return the extracted text exactly as it appears in the document."
+            },
+            {
+              inline_data: {
+                mime_type: "application/pdf",
+                data: base64
+              }
+            }
+          ]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 4096
+      }
+    };
+
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiKey,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      const extractedText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      
+      console.log(`Gemini extracted ${extractedText.length} characters from PDF`);
+      
+      if (extractedText.length > 20) {
+        return extractedText.trim();
+      }
+    } else {
+      const errorText = await response.text();
+      console.error('Gemini Vision API error:', errorText);
+    }
+    
+    // If Gemini Vision fails, fall back to simple text extraction
+    console.log('Falling back to basic PDF text extraction...');
+    return await fallbackPdfExtraction(uint8Array);
+    
+  } catch (error) {
+    console.error('PDF extraction error:', error);
+    return await fallbackPdfExtraction(new Uint8Array(arrayBuffer));
+  }
+}
+
+async function fallbackPdfExtraction(uint8Array: Uint8Array): Promise<string> {
+  try {
+    // Simple text extraction for basic PDFs
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    const content = decoder.decode(uint8Array);
+    
     let extractedText = '';
     
-    // Method 1: Try UTF-8 encoding first
-    try {
-      const decoder = new TextDecoder('utf-8');
-      const content = decoder.decode(uint8Array);
-      
-      // Extract text from parentheses (most common text storage in PDFs)
-      const parenthesesRegex = /\(([^)]*)\)/g;
-      let match;
-      while ((match = parenthesesRegex.exec(content)) !== null) {
-        const text = match[1]
+    // Extract text from PDF text objects
+    const textRegex = /BT\s+.*?ET/gs;
+    const textBlocks = content.match(textRegex) || [];
+    
+    for (const block of textBlocks) {
+      // Extract strings within parentheses
+      const stringMatches = block.match(/\(([^)]*)\)/g) || [];
+      for (const match of stringMatches) {
+        const text = match.slice(1, -1)
           .replace(/\\n/g, '\n')
           .replace(/\\r/g, '\r')
           .replace(/\\t/g, '\t')
@@ -47,96 +119,25 @@ async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string> {
           extractedText += text + ' ';
         }
       }
-      
-      // Extract from Tj commands (text showing operators)
-      const tjRegex = /\(([^)]*)\)\s*Tj/g;
-      while ((match = tjRegex.exec(content)) !== null) {
-        const text = match[1];
-        if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
-          extractedText += text + ' ';
-        }
-      }
-      
-      // Extract from TJ array commands
-      const arrayRegex = /\[([^\]]*)\]\s*TJ/g;
-      while ((match = arrayRegex.exec(content)) !== null) {
-        const arrayContent = match[1];
-        const textMatches = arrayContent.match(/\(([^)]*)\)/g);
-        if (textMatches) {
-          for (const textMatch of textMatches) {
-            const text = textMatch.slice(1, -1);
-            if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
-              extractedText += text + ' ';
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.log('UTF-8 decoding failed, trying Latin-1');
     }
     
-    // Method 2: If UTF-8 failed or yielded little, try Latin-1
-    if (extractedText.length < 100) {
-      try {
-        const decoder = new TextDecoder('latin-1');
-        const content = decoder.decode(uint8Array);
-        
-        // Same extraction patterns with Latin-1
-        const parenthesesRegex = /\(([^)]*)\)/g;
-        let match;
-        while ((match = parenthesesRegex.exec(content)) !== null) {
-          const text = match[1]
-            .replace(/\\n/g, '\n')
-            .replace(/\\r/g, '\r')
-            .replace(/\\t/g, '\t')
-            .replace(/\\(.)/g, '$1');
-          
-          if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
-            extractedText += text + ' ';
-          }
-        }
-      } catch (e) {
-        console.log('Latin-1 decoding also failed');
-      }
-    }
-    
-    // Method 3: Binary pattern matching for any readable text
-    if (extractedText.length < 50) {
-      const binaryStr = Array.from(uint8Array)
-        .map(byte => String.fromCharCode(byte))
-        .join('');
-      
-      // Look for readable ASCII text sequences
-      const asciiRegex = /[A-Za-z][A-Za-z0-9\s.,;:!?'"()-]{8,}/g;
-      const asciiMatches = binaryStr.match(asciiRegex);
-      if (asciiMatches) {
-        for (const match of asciiMatches) {
-          // Filter out PDF commands and binary data
-          if (!match.includes('/') && !match.includes('>>') && !match.includes('<<') && 
-              !match.includes('obj') && !match.includes('endobj') && !match.includes('xref')) {
-            extractedText += match + ' ';
-          }
-        }
-      }
-    }
-    
-    // Clean up the extracted text
+    // Clean up
     extractedText = extractedText
       .replace(/\s+/g, ' ')
-      .replace(/[^\x20-\x7E\n\r\t]/g, '')
       .trim();
     
-    console.log(`PDF extraction found ${extractedText.length} characters: "${extractedText.substring(0, 200)}..."`);
+    console.log(`Fallback extraction found ${extractedText.length} characters`);
     
     if (extractedText.length > 20) {
       return extractedText;
     }
     
-    console.log('PDF text extraction yielded minimal content');
-    return '';
+    // Last resort: return file info
+    return `This appears to be a PDF document that requires manual processing. File size: ${Math.round(uint8Array.length / 1024)}KB. Please ensure the PDF contains readable text and try again.`;
+    
   } catch (error) {
-    console.error('PDF extraction error:', error);
-    return '';
+    console.error('Fallback extraction failed:', error);
+    return `PDF processing failed. File size: ${Math.round(uint8Array.length / 1024)}KB. This document may be encrypted, image-based, or corrupted.`;
   }
 }
 
