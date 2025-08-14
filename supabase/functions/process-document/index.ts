@@ -371,9 +371,21 @@ serve(async (req) => {
     );
   } catch (err) {
     console.error("process-document error:", err);
+    
+    // Determine if this is a server overload/quota error
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const isServerBusy = errorMessage.includes("Server is currently busy") || 
+                        errorMessage.includes("quota") || 
+                        errorMessage.includes("rate limit") ||
+                        errorMessage.includes("overload");
+    
+    const responseMessage = isServerBusy 
+      ? "Server is currently experiencing high demand due to heavy usage. Please try again in a few minutes."
+      : errorMessage;
+    
     return new Response(
-      JSON.stringify({ error: String((err as Error).message || err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: responseMessage }),
+      { status: isServerBusy ? 503 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

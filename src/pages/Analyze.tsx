@@ -8,7 +8,7 @@ import { CheckCircle2, FileText, Loader2, Settings, Volume2, Square, Download, E
 import { AccessibilityToolbar } from '@/components/accessibility-toolbar';
 import { HeaderBar } from '@/components/header-bar';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from '@/components/ui/use-toast';
+import { toast } from '@/hooks/use-toast';
 import { extractTextFromFile } from '@/lib/extract-text';
 interface LocationState {
   files?: File[];
@@ -262,7 +262,21 @@ const Analyze: React.FC = () => {
             raw_text: rawText,
           },
         });
-        if (error) throw error;
+        
+        // Handle edge function errors properly
+        if (error) {
+          console.error('Edge function error:', error);
+          // Try to get the actual error message from the response
+          let errorMessage = error.message || 'Processing failed';
+          
+          // Check if this might be a server overload error
+          if (error.message?.includes('non-2xx status code')) {
+            // For non-2xx errors, we need to check what the actual error was
+            errorMessage = 'Server is currently experiencing high demand. Please try again in a few minutes.';
+          }
+          
+          throw new Error(errorMessage);
+        }
 
         // Step 3: Apply fixes/collect results
         setCurrentStep(2);
@@ -284,16 +298,22 @@ const Analyze: React.FC = () => {
         } catch (err: any) {
         console.error('Processing failed:', err);
         
-        // Check for server busy error
+        // Check for server busy/overload errors
         const isServerBusy = err?.message?.includes("Server is currently busy") || 
+                            err?.message?.includes("experiencing high demand") ||
                             err?.message?.includes("quota") || 
-                            err?.message?.includes("rate limit");
+                            err?.message?.includes("rate limit") ||
+                            err?.message?.includes("overload") ||
+                            err?.message?.includes("non-2xx status code");
+        
+        const title = isServerBusy ? '🚧 Server Overload' : 'Processing Failed';
+        const description = isServerBusy 
+          ? 'Our AI service is experiencing high demand due to heavy usage. Please wait a few minutes and try again.'
+          : err?.message || 'An unexpected error occurred. Please try again.';
         
         toast({
-          title: isServerBusy ? 'Server Busy' : 'Processing failed',
-          description: isServerBusy 
-            ? 'Our AI service is experiencing high demand. Please try again in a few minutes.'
-            : err?.message || 'Please check your Edge Function and its logs.',
+          title,
+          description,
           variant: 'destructive'
         });
         setDone(true);
