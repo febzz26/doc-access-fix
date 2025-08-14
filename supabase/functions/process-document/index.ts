@@ -319,6 +319,27 @@ serve(async (req) => {
 
     const processed_document_url = await uploadProcessedHtml(result.accessible_html);
 
+    // Clean up uploaded files after processing
+    if (urls.length > 0) {
+      try {
+        for (const url of urls) {
+          const fileName = url.split('/uploads/')[1];
+          if (fileName) {
+            const { error: deleteError } = await getSupabaseClient().storage
+              .from('uploads')
+              .remove([fileName]);
+            if (deleteError) {
+              console.warn('Failed to delete uploaded file:', fileName, deleteError);
+            } else {
+              console.log('Successfully deleted uploaded file:', fileName);
+            }
+          }
+        }
+      } catch (cleanupError) {
+        console.warn('Cleanup error:', cleanupError);
+      }
+    }
+
     console.log('Processing completed successfully');
     console.log(`Final HTML length: ${result.accessible_html.length}`);
     console.log(`Final summary: ${result.summary}`);
