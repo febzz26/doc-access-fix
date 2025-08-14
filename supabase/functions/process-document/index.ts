@@ -26,59 +26,96 @@ async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string> {
     console.log('Attempting comprehensive PDF text extraction...');
     
     const uint8Array = new Uint8Array(arrayBuffer);
-    const decoder = new TextDecoder('latin-1');
-    const rawContent = decoder.decode(uint8Array);
-    
     let extractedText = '';
     
-    // Method 1: Extract text from parentheses (most common text storage in PDFs)
-    const parenthesesRegex = /\(([^)]*)\)/g;
-    let match;
-    while ((match = parenthesesRegex.exec(rawContent)) !== null) {
-      const text = match[1]
-        .replace(/\\n/g, '\n')
-        .replace(/\\r/g, '\r')
-        .replace(/\\t/g, '\t')
-        .replace(/\\(.)/g, '$1');
+    // Method 1: Try UTF-8 encoding first
+    try {
+      const decoder = new TextDecoder('utf-8');
+      const content = decoder.decode(uint8Array);
       
-      if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
-        extractedText += text + ' ';
+      // Extract text from parentheses (most common text storage in PDFs)
+      const parenthesesRegex = /\(([^)]*)\)/g;
+      let match;
+      while ((match = parenthesesRegex.exec(content)) !== null) {
+        const text = match[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\(.)/g, '$1');
+        
+        if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
+          extractedText += text + ' ';
+        }
       }
+      
+      // Extract from Tj commands (text showing operators)
+      const tjRegex = /\(([^)]*)\)\s*Tj/g;
+      while ((match = tjRegex.exec(content)) !== null) {
+        const text = match[1];
+        if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
+          extractedText += text + ' ';
+        }
+      }
+      
+      // Extract from TJ array commands
+      const arrayRegex = /\[([^\]]*)\]\s*TJ/g;
+      while ((match = arrayRegex.exec(content)) !== null) {
+        const arrayContent = match[1];
+        const textMatches = arrayContent.match(/\(([^)]*)\)/g);
+        if (textMatches) {
+          for (const textMatch of textMatches) {
+            const text = textMatch.slice(1, -1);
+            if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
+              extractedText += text + ' ';
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.log('UTF-8 decoding failed, trying Latin-1');
     }
     
-    // Method 2: Extract from Tj commands (text showing operators)
-    const tjRegex = /\(([^)]*)\)\s*Tj/g;
-    while ((match = tjRegex.exec(rawContent)) !== null) {
-      const text = match[1];
-      if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
-        extractedText += text + ' ';
-      }
-    }
-    
-    // Method 3: Extract from TJ array commands
-    const arrayRegex = /\[([^\]]*)\]\s*TJ/g;
-    while ((match = arrayRegex.exec(rawContent)) !== null) {
-      const arrayContent = match[1];
-      const textMatches = arrayContent.match(/\(([^)]*)\)/g);
-      if (textMatches) {
-        for (const textMatch of textMatches) {
-          const text = textMatch.slice(1, -1);
+    // Method 2: If UTF-8 failed or yielded little, try Latin-1
+    if (extractedText.length < 100) {
+      try {
+        const decoder = new TextDecoder('latin-1');
+        const content = decoder.decode(uint8Array);
+        
+        // Same extraction patterns with Latin-1
+        const parenthesesRegex = /\(([^)]*)\)/g;
+        let match;
+        while ((match = parenthesesRegex.exec(content)) !== null) {
+          const text = match[1]
+            .replace(/\\n/g, '\n')
+            .replace(/\\r/g, '\r')
+            .replace(/\\t/g, '\t')
+            .replace(/\\(.)/g, '$1');
+          
           if (text.length > 1 && /[a-zA-Z0-9]/.test(text)) {
             extractedText += text + ' ';
           }
         }
+      } catch (e) {
+        console.log('Latin-1 decoding also failed');
       }
     }
     
-    // Method 4: Look for readable ASCII text sequences
-    const asciiRegex = /[A-Za-z][A-Za-z0-9\s.,;:!?'"()-]{10,}/g;
-    const asciiMatches = rawContent.match(asciiRegex);
-    if (asciiMatches) {
-      for (const match of asciiMatches) {
-        // Filter out PDF commands and binary data
-        if (!match.includes('/') && !match.includes('>>') && !match.includes('<<') && 
-            !match.includes('obj') && !match.includes('endobj')) {
-          extractedText += match + ' ';
+    // Method 3: Binary pattern matching for any readable text
+    if (extractedText.length < 50) {
+      const binaryStr = Array.from(uint8Array)
+        .map(byte => String.fromCharCode(byte))
+        .join('');
+      
+      // Look for readable ASCII text sequences
+      const asciiRegex = /[A-Za-z][A-Za-z0-9\s.,;:!?'"()-]{8,}/g;
+      const asciiMatches = binaryStr.match(asciiRegex);
+      if (asciiMatches) {
+        for (const match of asciiMatches) {
+          // Filter out PDF commands and binary data
+          if (!match.includes('/') && !match.includes('>>') && !match.includes('<<') && 
+              !match.includes('obj') && !match.includes('endobj') && !match.includes('xref')) {
+            extractedText += match + ' ';
+          }
         }
       }
     }
@@ -89,9 +126,9 @@ async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<string> {
       .replace(/[^\x20-\x7E\n\r\t]/g, '')
       .trim();
     
-    console.log(`PDF extraction found ${extractedText.length} characters`);
+    console.log(`PDF extraction found ${extractedText.length} characters: "${extractedText.substring(0, 200)}..."`);
     
-    if (extractedText.length > 50) {
+    if (extractedText.length > 20) {
       return extractedText;
     }
     
@@ -150,7 +187,13 @@ CRITICAL REQUIREMENTS:
 7. If given extracted text content, use it exactly as the source material.
 8. Create a meaningful summary that reflects the actual document content.
 
-IMPORTANT: If you receive extracted text from a PDF or document, that IS the actual content to process. Do not create generic examples or placeholders.`;
+ABSOLUTELY FORBIDDEN:
+- DO NOT create generic content like "How to Ace That Interview" if that's not what the document is about
+- DO NOT make up titles, headings, or content that doesn't exist in the source
+- DO NOT use placeholder text or examples
+- ONLY use the actual text content provided to you
+
+IMPORTANT: The content you receive IS the real document content. Process it exactly as written, preserving all actual text, headings, and structure from the source document.`;
 
   const userPrompt = fileName 
     ? `Process the content from this document file "${fileName}":\n\n${prompt}`
