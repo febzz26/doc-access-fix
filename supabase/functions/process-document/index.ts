@@ -12,6 +12,20 @@ interface ProcessRequestBody {
   raw_text?: string;
 }
 
+// Helper function to convert ArrayBuffer to base64 safely
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 8192; // Process in 8KB chunks
+  let binaryString = '';
+  
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.slice(i, i + chunkSize);
+    binaryString += String.fromCharCode(...chunk);
+  }
+  
+  return btoa(binaryString);
+}
+
 function getSupabaseClient() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
@@ -37,7 +51,9 @@ async function processDocumentWithGemini(fileUrl: string, fileName: string): Pro
 
   const arrayBuffer = await response.arrayBuffer();
   const uint8Array = new Uint8Array(arrayBuffer);
-  const base64 = btoa(String.fromCharCode(...uint8Array));
+  
+  // Convert to base64 safely for large files
+  const base64 = await arrayBufferToBase64(arrayBuffer);
   const contentType = response.headers.get("content-type") || "application/pdf";
 
   console.log(`File size: ${arrayBuffer.byteLength} bytes, Content-Type: ${contentType}`);
