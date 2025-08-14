@@ -71,12 +71,21 @@ const Analyze: React.FC = () => {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
 
-      // Find and set the selected voice
-      const selectedVoice = availableVoices.find(voice => voice.lang === selectedLanguage || voice.name.includes(selectedLanguage));
+      // Find and set the selected voice - improved language matching
+      const selectedVoice = availableVoices.find(voice => {
+        // First try exact match
+        if (voice.lang === selectedLanguage) return true;
+        // Then try language prefix match (e.g., 'en' matches 'en-US')
+        const langPrefix = selectedLanguage.split('-')[0];
+        return voice.lang.startsWith(langPrefix);
+      });
+      
       if (selectedVoice) {
         utterance.voice = selectedVoice;
+        utterance.lang = selectedVoice.lang;
+      } else {
+        utterance.lang = selectedLanguage;
       }
-      utterance.lang = selectedLanguage;
       utterance.rate = 1.0;
       utteranceRef.current = utterance;
       utterance.onend = () => setIsSpeaking(false);
@@ -272,11 +281,19 @@ const Analyze: React.FC = () => {
         setCurrentStep(3);
         setProgress(100);
         setDone(true);
-      } catch (err: any) {
+        } catch (err: any) {
         console.error('Processing failed:', err);
+        
+        // Check for server busy error
+        const isServerBusy = err?.message?.includes("Server is currently busy") || 
+                            err?.message?.includes("quota") || 
+                            err?.message?.includes("rate limit");
+        
         toast({
-          title: 'Processing failed',
-          description: err?.message || 'Please check your Edge Function and its logs.',
+          title: isServerBusy ? 'Server Busy' : 'Processing failed',
+          description: isServerBusy 
+            ? 'Our AI service is experiencing high demand. Please try again in a few minutes.'
+            : err?.message || 'Please check your Edge Function and its logs.',
           variant: 'destructive'
         });
         setDone(true);

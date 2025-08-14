@@ -170,9 +170,26 @@ Return format:
 
       const errorText = await resp.text().catch(() => '');
       console.error(`Gemini API error (attempt ${attempt + 1}):`, errorText);
+      
+      // Check for quota exhausted error
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error?.code === 429 && errorJson.error?.status === "RESOURCE_EXHAUSTED") {
+          throw new Error("Server is currently busy due to high demand. Please try again in a few minutes.");
+        }
+      } catch (parseError) {
+        // If we can't parse the error, continue with retry logic
+      }
+      
       await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     } catch (error) {
       console.error(`Gemini API error (attempt ${attempt + 1}):`, error);
+      
+      // Check if this is our custom quota error
+      if (error instanceof Error && error.message.includes("Server is currently busy")) {
+        throw error; // Re-throw to stop retries
+      }
+      
       await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     }
   }
