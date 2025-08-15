@@ -20,9 +20,15 @@ export async function extractTextFromFile(file: File): Promise<{ text: string; c
       const result = await mammoth.convertToHtml({ arrayBuffer });
       // Provide HTML to preserve structure; model will normalize semantics
       const html = result.value as string;
-      return { text: html, contentType };
+      
+      // If mammoth extraction was successful and we have content, use it
+      if (html && html.trim() && html.length > 50) {
+        return { text: html, contentType };
+      } else {
+        console.warn('Mammoth extraction produced minimal content, falling back to backend');
+      }
     } catch (e) {
-      console.warn('Failed to extract DOCX content:', e);
+      console.warn('Failed to extract DOCX content with mammoth:', e);
       // Fall through to backend processing
     }
   }

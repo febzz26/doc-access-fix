@@ -26,6 +26,19 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binaryString);
 }
 
+// Function to sanitize text content and remove control characters
+function sanitizeText(text: string): string {
+  return text
+    // Remove control characters except newlines and tabs
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    // Remove null bytes
+    .replace(/\0/g, '')
+    // Trim and ensure we have content
+    .trim() || 'No content available';
+}
+
 function getSupabaseClient() {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
@@ -61,8 +74,9 @@ async function processDocumentWithGemini(fileUrl: string, fileName: string): Pro
   // Handle text files directly
   if (contentType.startsWith("text/") || contentType.includes("json") || contentType.includes("xml") || contentType.includes("html")) {
     const text = new TextDecoder().decode(arrayBuffer);
-    console.log(`Extracted ${text.length} characters from text file`);
-    return await processTextWithGemini(text, fileName);
+    const sanitizedText = sanitizeText(text);
+    console.log(`Extracted ${sanitizedText.length} characters from text file`);
+    return await processTextWithGemini(sanitizedText, fileName);
   }
 
   // Handle DOCX files
@@ -70,8 +84,9 @@ async function processDocumentWithGemini(fileUrl: string, fileName: string): Pro
     try {
       const text = await extractTextFromDocx(arrayBuffer);
       if (text.length > 0) {
-        console.log(`Extracted ${text.length} characters from DOCX`);
-        return await processTextWithGemini(text, fileName);
+        const sanitizedText = sanitizeText(text);
+        console.log(`Extracted ${sanitizedText.length} characters from DOCX`);
+        return await processTextWithGemini(sanitizedText, fileName);
       }
     } catch (error) {
       console.error('DOCX extraction failed:', error);
@@ -203,6 +218,9 @@ async function processTextWithGemini(text: string, fileName: string): Promise<{ 
     throw new Error("GEMINI_API_KEY is not set");
   }
 
+  // Additional sanitization for Gemini processing
+  const sanitizedText = text.replace(/[""'']/g, '"').replace(/[–—]/g, '-');
+  
   const systemPrompt = `Convert this text content into accessible HTML format.
 
 Instructions:
@@ -211,9 +229,10 @@ Instructions:
 3. Return ONLY valid JSON with "accessible_html" and "summary" keys
 4. Wrap content in <article> tags
 5. Use proper heading hierarchy and WCAG 2.2 AA compliance
+6. Ensure JSON is valid - escape quotes and special characters properly
 
 Text content to process:
-${text}`;
+${sanitizedText}`;
 
   const body = {
     contents: [
@@ -264,17 +283,41 @@ async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
       throw new Error("Could not find document.xml in DOCX file");
     }
     
-    const textContent = documentXml
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&amp;/g, '&')
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim();
+    // Extract text content from XML structure
+    const textParts: string[] = [];
     
-    return textContent;
+    // Look for text elements in the XML
+    const textMatches = documentXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g);
+    if (textMatches) {
+      textMatches.forEach(match => {
+        const textContent = match.replace(/<w:t[^>]*>([^<]*)<\/w:t>/, '$1');
+        if (textContent.trim()) {
+          textParts.push(textContent);
+        }
+      });
+    }
+    
+    // If that fails, fall back to simple tag removal
+    if (textParts.length === 0) {
+      const fallbackText = documentXml
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      if (fallbackText) {
+        textParts.push(fallbackText);
+      }
+    }
+    
+    const finalText = textParts.join(' ').trim();
+    console.log(`DOCX extraction: found ${textParts.length} text parts, total length: ${finalText.length}`);
+    
+    return finalText;
   } catch (error) {
     console.error('DOCX extraction failed:', error);
     return '';
@@ -324,7 +367,8 @@ serve(async (req) => {
     if (providedText && !providedText.startsWith('BACKEND_PROCESSING_REQUIRED:')) {
       // Process provided text
       const fileName = 'user-provided-text';
-      result = await processTextWithGemini(providedText, fileName);
+      const sanitizedText = sanitizeText(providedText);
+      result = await processTextWithGemini(sanitizedText, fileName);
     } else if (urls.length > 0) {
       // Process uploaded file
       const fileUrl = urls[0];
