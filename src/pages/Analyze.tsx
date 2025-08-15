@@ -101,10 +101,26 @@ const Analyze: React.FC = () => {
     setIsSpeaking(false);
   };
   const handleDownload = async () => {
+    // Add debug logging
+    console.log('Download attempt:', { 
+      accessibleContent: accessibleContent?.length || 0, 
+      processedDocumentUrl,
+      downloadFormat 
+    });
+    
     if (!accessibleContent && !processedDocumentUrl) {
       toast({
         title: 'No content available',
         description: 'Please process a document first before downloading.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
+    if (!accessibleContent) {
+      toast({
+        title: 'No processed content',
+        description: 'The document content is empty. Please try processing again.',
         variant: 'destructive'
       });
       return;
@@ -414,10 +430,22 @@ const Analyze: React.FC = () => {
                   <h3 className="text-lg font-semibold text-foreground">Accessible Document Preview</h3>
                 </div>
                 
-                <div className="bg-background border rounded-md p-6 max-h-96 overflow-y-auto">
-                  <div className="prose prose-sm max-w-none text-foreground whitespace-pre-wrap" dangerouslySetInnerHTML={{
-                __html: accessibleContent || '<p>Accessible content will appear here after AI processing.</p>'
-              }} />
+                <div className="bg-gradient-to-br from-background to-accent/20 border-2 border-primary/20 rounded-xl p-8 max-h-96 overflow-y-auto shadow-inner">
+                  <div className="prose prose-lg max-w-none text-foreground leading-relaxed" 
+                       dangerouslySetInnerHTML={{
+                         __html: accessibleContent || `
+                           <div class="text-center py-8">
+                             <p class="text-muted-foreground text-lg">✨ Accessible content will appear here after AI processing</p>
+                             <p class="text-muted-foreground text-sm mt-2">Your document will be optimized for screen readers and accessibility compliance</p>
+                           </div>
+                         `
+                       }} 
+                       style={{
+                         fontSize: '1.125rem',
+                         lineHeight: '1.75',
+                         fontFamily: 'system-ui, -apple-system, sans-serif'
+                       }}
+                  />
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4 pt-4 border-t">
