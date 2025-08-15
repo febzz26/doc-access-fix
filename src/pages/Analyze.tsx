@@ -180,31 +180,57 @@ const Analyze: React.FC = () => {
             downloadBlob(blob, `${fileBase}.txt`);
             break;
           }
-        case 'pdf':
-          {
-            const html2pdf: any = (await import('html2pdf.js')).default;
-            const container = document.createElement('div');
-            container.style.position = 'fixed';
-            container.style.left = '-9999px';
-            let htmlSource = accessibleContent;
-            if (!htmlSource && processedDocumentUrl) {
-              try {
-                htmlSource = await fetch(processedDocumentUrl).then(r => r.text());
-              } catch {
-                htmlSource = '';
-              }
-            }
-            if (!htmlSource) throw new Error('No content available to generate PDF.');
-            container.innerHTML = htmlSource;
-            document.body.appendChild(container);
-            await html2pdf().from(container).set({
-              filename: `${fileBase}.pdf`,
-              jsPDF: { unit: 'pt', format: 'a4', orientation: 'portrait' },
-              pagebreak: { mode: ['css', 'legacy'] },
-            }).save();
-            document.body.removeChild(container);
-            break;
-          }
+         case 'pdf':
+           {
+             console.log('Starting PDF generation...');
+             const html2pdf: any = (await import('html2pdf.js')).default;
+             
+             // Create a proper HTML document structure for PDF
+             const htmlContent = `
+               <!DOCTYPE html>
+               <html>
+                 <head>
+                   <meta charset="utf-8">
+                   <title>Accessible Document</title>
+                   <style>
+                     body { 
+                       font-family: 'Times New Roman', serif; 
+                       line-height: 1.6; 
+                       color: #333; 
+                       max-width: 800px; 
+                       margin: 0 auto; 
+                       padding: 20px; 
+                     }
+                     h1, h2, h3, h4, h5, h6 { 
+                       font-weight: bold; 
+                       margin-top: 20px; 
+                       margin-bottom: 10px; 
+                       color: #2c3e50; 
+                     }
+                     p { margin-bottom: 12px; }
+                     ul, ol { margin-bottom: 15px; padding-left: 30px; }
+                     li { margin-bottom: 5px; }
+                   </style>
+                 </head>
+                 <body>
+                   ${accessibleContent}
+                 </body>
+               </html>
+             `;
+             
+             const opt = {
+               margin: [10, 10, 10, 10],
+               filename: `${fileBase}.pdf`,
+               image: { type: 'jpeg', quality: 0.98 },
+               html2canvas: { scale: 2, useCORS: true },
+               jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+             };
+             
+             console.log('Generating PDF with options:', opt);
+             await html2pdf().set(opt).from(htmlContent).save();
+             console.log('PDF generation completed');
+             break;
+           }
         default:
           {
             const blob = new Blob([accessibleContent], {
@@ -212,14 +238,22 @@ const Analyze: React.FC = () => {
             });
             downloadBlob(blob, `${fileBase}.txt`);
           }
-      }
-    } catch (error) {
-      console.error('Download failed:', error);
-      toast({
-        title: 'Download failed',
-        description: 'Please try again.',
-        variant: 'destructive'
-      });
+       }
+       
+       console.log('Download completed successfully');
+       toast({
+         title: 'Download successful',
+         description: `Your accessible document has been downloaded as ${downloadFormat.toUpperCase()}.`,
+         variant: 'default'
+       });
+       
+     } catch (error) {
+       console.error('Download failed:', error);
+       toast({
+         title: 'Download failed',
+         description: error instanceof Error ? error.message : 'Please try again.',
+         variant: 'destructive'
+       });
     } finally {
       setIsDownloading(false);
     }
@@ -430,22 +464,50 @@ const Analyze: React.FC = () => {
                   <h3 className="text-lg font-semibold text-foreground">Accessible Document Preview</h3>
                 </div>
                 
-                <div className="bg-gradient-to-br from-background to-accent/20 border-2 border-primary/20 rounded-xl p-8 max-h-96 overflow-y-auto shadow-inner">
-                  <div className="prose prose-lg max-w-none text-foreground leading-relaxed" 
+                <div className="bg-gradient-document border-2 border-primary/10 rounded-xl p-8 max-h-[28rem] overflow-y-auto shadow-soft backdrop-blur-sm">
+                  <div className="prose prose-lg max-w-none text-foreground" 
                        dangerouslySetInnerHTML={{
                          __html: accessibleContent || `
-                           <div class="text-center py-8">
-                             <p class="text-muted-foreground text-lg">✨ Accessible content will appear here after AI processing</p>
-                             <p class="text-muted-foreground text-sm mt-2">Your document will be optimized for screen readers and accessibility compliance</p>
+                           <div class="text-center py-12">
+                             <div class="text-4xl mb-4">✨</div>
+                             <p class="text-muted-foreground text-xl font-medium mb-2">Accessible content will appear here</p>
+                             <p class="text-muted-foreground text-sm">Your document will be optimized for screen readers and accessibility compliance</p>
                            </div>
                          `
                        }} 
-                       style={{
-                         fontSize: '1.125rem',
-                         lineHeight: '1.75',
-                         fontFamily: 'system-ui, -apple-system, sans-serif'
-                       }}
                   />
+                  <style>{`
+                    .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+                      font-weight: 700 !important;
+                      margin-top: 2rem !important;
+                      margin-bottom: 1rem !important;
+                      color: hsl(var(--primary)) !important;
+                    }
+                    .prose h1 { font-size: 2rem !important; }
+                    .prose h2 { font-size: 1.75rem !important; }
+                    .prose h3 { font-size: 1.5rem !important; }
+                    .prose p {
+                      margin-bottom: 1.25rem !important;
+                      line-height: 1.75 !important;
+                      font-size: 1.125rem !important;
+                    }
+                    .prose ul, .prose ol {
+                      margin-bottom: 1.5rem !important;
+                      padding-left: 2rem !important;
+                    }
+                    .prose li {
+                      margin-bottom: 0.75rem !important;
+                      line-height: 1.6 !important;
+                    }
+                    .prose strong {
+                      font-weight: 600 !important;
+                      color: hsl(var(--primary)) !important;
+                    }
+                    .prose em {
+                      font-style: italic !important;
+                      color: hsl(var(--muted-foreground)) !important;
+                    }
+                  `}</style>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4 pt-4 border-t">
