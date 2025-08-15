@@ -218,8 +218,14 @@ async function processTextWithGemini(text: string, fileName: string): Promise<{ 
     throw new Error("GEMINI_API_KEY is not set");
   }
 
-  // Additional sanitization for Gemini processing
-  const sanitizedText = text.replace(/[""'']/g, '"').replace(/[–—]/g, '-');
+  // Enhanced sanitization for Gemini processing
+  const sanitizedText = sanitizeText(text);
+  
+  // Check if text is mostly garbage/corrupted
+  const nonPrintableRatio = (sanitizedText.match(/[^\x20-\x7E\s]/g) || []).length / sanitizedText.length;
+  if (nonPrintableRatio > 0.5) {
+    throw new Error(`Document content appears corrupted or unreadable (${fileName}). Please ensure the file is not corrupted and try again.`);
+  }
   
   const systemPrompt = `Convert this text content into accessible HTML format.
 
@@ -229,10 +235,11 @@ Instructions:
 3. Return ONLY valid JSON with "accessible_html" and "summary" keys
 4. Wrap content in <article> tags
 5. Use proper heading hierarchy and WCAG 2.2 AA compliance
-6. Ensure JSON is valid - escape quotes and special characters properly
+6. Ensure all quotes and special characters are properly escaped in JSON
+7. Do not include any text outside the JSON structure
 
 Text content to process:
-${sanitizedText}`;
+${sanitizedText.substring(0, 3000)}${sanitizedText.length > 3000 ? '...' : ''}`;
 
   const body = {
     contents: [
@@ -254,23 +261,34 @@ ${sanitizedText}`;
     }
   );
 
-  if (resp.ok) {
-    const data = await resp.json();
-    const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    
-    try {
-      const parsed = JSON.parse(responseText);
-      return parsed;
-    } catch (e) {
-      console.error('Failed to parse text processing response:', e);
-      return {
-        accessible_html: `<article><div>${text}</div></article>`,
-        summary: "Text content processed with basic formatting",
-      };
-    }
+  if (!resp.ok) {
+    throw new Error(`Gemini API failed with status ${resp.status}`);
   }
 
-  throw new Error("Failed to process text with Gemini");
+  const data = await resp.json();
+  const responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  
+  if (!responseText) {
+    throw new Error("Empty response from Gemini API");
+  }
+  
+  try {
+    const parsed = JSON.parse(responseText);
+    if (!parsed.accessible_html || !parsed.summary) {
+      throw new Error("Invalid response format from Gemini API");
+    }
+    return parsed;
+  } catch (e) {
+    console.error('Failed to parse text processing response:', e);
+    console.error('Response text:', responseText);
+    
+    // Fallback with proper escaping
+    const escapedText = sanitizedText.replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    return {
+      accessible_html: `<article><div>${escapedText}</div></article>`,
+      summary: `Processing failed for ${fileName}. Content displayed with basic formatting.`,
+    };
+  }
 }
 
 async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
@@ -280,13 +298,13 @@ async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
     
     const documentXml = await zip.file("word/document.xml")?.async("text");
     if (!documentXml) {
-      throw new Error("Could not find document.xml in DOCX file");
+      throw new Error("Could not find document.xml in DOCX file - file may be corrupted");
     }
     
-    // Extract text content from XML structure
+    // Extract text content from XML structure with better parsing
     const textParts: string[] = [];
     
-    // Look for text elements in the XML
+    // Look for text elements in the XML with more comprehensive regex
     const textMatches = documentXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g);
     if (textMatches) {
       textMatches.forEach(match => {
@@ -297,8 +315,26 @@ async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
       });
     }
     
-    // If that fails, fall back to simple tag removal
-    if (textParts.length === 0) {
+    // Also look for paragraph breaks and other text nodes
+    const paragraphMatches = documentXml.match(/<w:p[^>]*>.*?<\/w:p>/gs);
+    if (paragraphMatches && textParts.length === 0) {
+      paragraphMatches.forEach(para => {
+        const textNodes = para.match(/<w:t[^>]*>([^<]*)<\/w:t>/g);
+        if (textNodes) {
+          const paraText = textNodes.map(node => 
+            node.replace(/<w:t[^>]*>([^<]*)<\/w:t>/, '$1')
+          ).join(' ');
+          if (paraText.trim()) {
+            textParts.push(paraText);
+          }
+        }
+      });
+    }
+    
+    let extractedText = textParts.join(' ');
+    
+    // If still no text, try a more aggressive extraction
+    if (extractedText.trim().length === 0) {
       const fallbackText = documentXml
         .replace(/<[^>]*>/g, ' ')
         .replace(/&lt;/g, '<')
@@ -309,18 +345,25 @@ async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
         .replace(/\s+/g, ' ')
         .trim();
       
-      if (fallbackText) {
-        textParts.push(fallbackText);
+      if (fallbackText.length > 10) {
+        extractedText = fallbackText;
+      } else {
+        throw new Error("No readable text content found in DOCX file");
       }
     }
     
-    const finalText = textParts.join(' ').trim();
-    console.log(`DOCX extraction: found ${textParts.length} text parts, total length: ${finalText.length}`);
+    // Additional cleaning
+    extractedText = sanitizeText(extractedText);
     
-    return finalText;
+    if (extractedText.trim().length === 0) {
+      throw new Error("DOCX file appears to be empty or corrupted");
+    }
+    
+    console.log(`DOCX extraction: extracted ${extractedText.length} characters`);
+    return extractedText;
   } catch (error) {
-    console.error('DOCX extraction failed:', error);
-    return '';
+    console.error('DOCX extraction error:', error);
+    throw new Error(`Failed to extract text from DOCX: ${error.message}`);
   }
 }
 

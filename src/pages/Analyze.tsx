@@ -326,10 +326,15 @@ const Analyze: React.FC = () => {
           // Try to get the actual error message from the response
           let errorMessage = error.message || 'Processing failed';
           
-          // Check if this might be a server overload error
-          if (error.message?.includes('non-2xx status code')) {
-            // For non-2xx errors, we need to check what the actual error was
+          // Check for specific error types and provide helpful messages
+          if (error.message?.includes('corrupted or unreadable')) {
+            errorMessage = `Document processing failed: ${error.message}`;
+          } else if (error.message?.includes('non-2xx status code')) {
             errorMessage = 'Server is currently experiencing high demand. Please try again in a few minutes.';
+          } else if (error.message?.includes('NetworkError')) {
+            errorMessage = 'Network connection error. Please check your internet connection and try again.';
+          } else if (error.message?.includes('Failed to extract text')) {
+            errorMessage = `Document processing failed: ${error.message}. Please ensure your file is not corrupted.`;
           }
           
           throw new Error(errorMessage);
