@@ -28,14 +28,23 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 // Function to sanitize text content and remove control characters
 function sanitizeText(text: string): string {
+  if (!text || typeof text !== 'string') {
+    return 'No content available';
+  }
+  
   return text
     // Remove control characters except newlines and tabs
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    // Normalize whitespace
-    .replace(/\s+/g, ' ')
+    // Remove Unicode replacement characters and other problematic characters
+    .replace(/\uFFFD/g, '')
+    // Remove excessive whitespace but preserve paragraph breaks
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     // Remove null bytes
     .replace(/\0/g, '')
-    // Trim and ensure we have content
+    // Remove non-printable characters that might cause display issues
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Trim and ensure we have meaningful content
     .trim() || 'No content available';
 }
 
@@ -71,10 +80,31 @@ async function processDocumentWithGemini(fileUrl: string, fileName: string): Pro
 
   console.log(`File size: ${arrayBuffer.byteLength} bytes, Content-Type: ${contentType}`);
 
-  // Handle text files directly
+  // Handle text files directly with proper encoding detection
   if (contentType.startsWith("text/") || contentType.includes("json") || contentType.includes("xml") || contentType.includes("html")) {
-    const text = new TextDecoder().decode(arrayBuffer);
+    let text;
+    try {
+      // Try UTF-8 first
+      text = new TextDecoder('utf-8', { fatal: true }).decode(arrayBuffer);
+    } catch (e) {
+      try {
+        // Fallback to UTF-16 if UTF-8 fails
+        text = new TextDecoder('utf-16le').decode(arrayBuffer);
+      } catch (e2) {
+        try {
+          // Final fallback to latin1
+          text = new TextDecoder('latin1').decode(arrayBuffer);
+        } catch (e3) {
+          throw new Error(`Unable to decode text file ${fileName}. The file encoding is not supported.`);
+        }
+      }
+    }
+    
     const sanitizedText = sanitizeText(text);
+    if (sanitizedText === 'No content available' || sanitizedText.length < 5) {
+      throw new Error(`Text file ${fileName} appears to be empty or contains unreadable content.`);
+    }
+    
     console.log(`Extracted ${sanitizedText.length} characters from text file`);
     return await processTextWithGemini(sanitizedText, fileName);
   }
@@ -221,11 +251,26 @@ async function processTextWithGemini(text: string, fileName: string): Promise<{ 
   // Enhanced sanitization for Gemini processing
   const sanitizedText = sanitizeText(text);
   
-  // Check if text is mostly garbage/corrupted
-  const nonPrintableRatio = (sanitizedText.match(/[^\x20-\x7E\s]/g) || []).length / sanitizedText.length;
-  if (nonPrintableRatio > 0.5) {
-    throw new Error(`Document content appears corrupted or unreadable (${fileName}). Please ensure the file is not corrupted and try again.`);
+  // Check if text is meaningful
+  if (!sanitizedText || sanitizedText === 'No content available' || sanitizedText.length < 10) {
+    throw new Error(`Document ${fileName} appears to be empty or contains no readable text content.`);
   }
+  
+  // Check if text is mostly corrupted by looking at meaningful word patterns
+  const words = sanitizedText.split(/\s+/).filter(word => word.length > 1);
+  const meaningfulWords = words.filter(word => 
+    /[a-zA-Z]/.test(word) && // Contains letters
+    word.length > 1 && 
+    !/^[^a-zA-Z0-9]*$/.test(word) // Not just symbols
+  );
+  
+  const meaningfulRatio = meaningfulWords.length / Math.max(words.length, 1);
+  if (meaningfulRatio < 0.3 && words.length > 10) {
+    throw new Error(`Document ${fileName} contains mostly unreadable content. The file may be corrupted or in an unsupported format.`);
+  }
+  
+  console.log(`Text validation passed: ${meaningfulWords.length}/${words.length} meaningful words`);
+  console.log(`Sample text: ${sanitizedText.substring(0, 150)}...`);
   
   const systemPrompt = `Convert this text content into accessible HTML format.
 
@@ -301,40 +346,81 @@ async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
       throw new Error("Could not find document.xml in DOCX file - file may be corrupted");
     }
     
-    // Extract text content from XML structure with better parsing
+    console.log('DOCX XML length:', documentXml.length);
+    
+    // Extract text content from XML structure with improved parsing
     const textParts: string[] = [];
     
-    // Look for text elements in the XML with more comprehensive regex
-    const textMatches = documentXml.match(/<w:t[^>]*>([^<]*)<\/w:t>/g);
-    if (textMatches) {
-      textMatches.forEach(match => {
-        const textContent = match.replace(/<w:t[^>]*>([^<]*)<\/w:t>/, '$1');
-        if (textContent.trim()) {
-          textParts.push(textContent);
-        }
-      });
-    }
+    // Enhanced text extraction patterns
+    const patterns = [
+      // Standard text nodes
+      /<w:t[^>]*>([^<]+)<\/w:t>/g,
+      // Text with spaces preserved
+      /<w:t\s+xml:space="preserve"[^>]*>([^<]*)<\/w:t>/g,
+      // Alternative text patterns
+      /<w:delText[^>]*>([^<]+)<\/w:delText>/g
+    ];
     
-    // Also look for paragraph breaks and other text nodes
-    const paragraphMatches = documentXml.match(/<w:p[^>]*>.*?<\/w:p>/gs);
-    if (paragraphMatches && textParts.length === 0) {
-      paragraphMatches.forEach(para => {
-        const textNodes = para.match(/<w:t[^>]*>([^<]*)<\/w:t>/g);
-        if (textNodes) {
-          const paraText = textNodes.map(node => 
-            node.replace(/<w:t[^>]*>([^<]*)<\/w:t>/, '$1')
-          ).join(' ');
-          if (paraText.trim()) {
-            textParts.push(paraText);
+    patterns.forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(documentXml)) !== null) {
+        const textContent = match[1];
+        if (textContent && textContent.trim()) {
+          // Decode XML entities properly
+          const decodedText = textContent
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'");
+          textParts.push(decodedText);
+        }
+      }
+    });
+    
+    // Join text with proper spacing and paragraph breaks
+    let extractedText = '';
+    if (textParts.length > 0) {
+      // Look for paragraph boundaries to preserve document structure
+      const paragraphs = documentXml.match(/<w:p[^>]*>.*?<\/w:p>/gs) || [];
+      
+      if (paragraphs.length > 0) {
+        paragraphs.forEach((para, index) => {
+          const paraTextParts: string[] = [];
+          patterns.forEach(pattern => {
+            pattern.lastIndex = 0; // Reset regex
+            let match;
+            while ((match = pattern.exec(para)) !== null) {
+              const textContent = match[1];
+              if (textContent && textContent.trim()) {
+                const decodedText = textContent
+                  .replace(/&lt;/g, '<')
+                  .replace(/&gt;/g, '>')
+                  .replace(/&amp;/g, '&')
+                  .replace(/&quot;/g, '"')
+                  .replace(/&apos;/g, "'");
+                paraTextParts.push(decodedText);
+              }
+            }
+          });
+          
+          if (paraTextParts.length > 0) {
+            extractedText += paraTextParts.join(' ');
+            if (index < paragraphs.length - 1) {
+              extractedText += '\n\n'; // Add paragraph breaks
+            }
           }
-        }
-      });
+        });
+      } else {
+        extractedText = textParts.join(' ');
+      }
     }
     
-    let extractedText = textParts.join(' ');
-    
-    // If still no text, try a more aggressive extraction
-    if (extractedText.trim().length === 0) {
+    // If still no meaningful text, try fallback extraction
+    if (!extractedText || extractedText.trim().length < 10) {
+      console.log('Trying fallback DOCX extraction method');
+      
+      // Remove all XML tags and decode entities
       const fallbackText = documentXml
         .replace(/<[^>]*>/g, ' ')
         .replace(/&lt;/g, '<')
@@ -345,25 +431,34 @@ async function extractTextFromDocx(arrayBuffer: ArrayBuffer): Promise<string> {
         .replace(/\s+/g, ' ')
         .trim();
       
-      if (fallbackText.length > 10) {
-        extractedText = fallbackText;
+      // Filter out non-meaningful content
+      const words = fallbackText.split(' ').filter(word => 
+        word.length > 1 && 
+        !/^[0-9\-\.]+$/.test(word) && // Skip pure numbers/formatting
+        !/^[^a-zA-Z]*$/.test(word) // Skip non-alphabetic strings
+      );
+      
+      if (words.length > 5) {
+        extractedText = words.join(' ');
       } else {
-        throw new Error("No readable text content found in DOCX file");
+        throw new Error("DOCX file contains no readable text content");
       }
     }
     
-    // Additional cleaning
+    // Final sanitization
     extractedText = sanitizeText(extractedText);
     
-    if (extractedText.trim().length === 0) {
-      throw new Error("DOCX file appears to be empty or corrupted");
+    if (!extractedText || extractedText === 'No content available' || extractedText.length < 5) {
+      throw new Error("DOCX file appears to be empty, corrupted, or contains only formatting data");
     }
     
-    console.log(`DOCX extraction: extracted ${extractedText.length} characters`);
+    console.log(`DOCX extraction successful: ${extractedText.length} characters`);
+    console.log(`First 200 chars: ${extractedText.substring(0, 200)}...`);
+    
     return extractedText;
   } catch (error) {
     console.error('DOCX extraction error:', error);
-    throw new Error(`Failed to extract text from DOCX: ${error.message}`);
+    throw new Error(`Failed to extract readable text from DOCX file: ${error.message}`);
   }
 }
 
